@@ -1,0 +1,6 @@
+export { default as BaseButton } from './Button.vue'
+export { default as SidebarPanel } from './Sidebar.vue'
+export { default as AppletShell } from './AppletShell.vue'
+export { default as SidebarItem } from './SidebarItem.vue'
+export { default as SidebarTab } from './SidebarTab.vue'
+export { default as BaseModal } from './Modal.vue'

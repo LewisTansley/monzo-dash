@@ -1,0 +1,109 @@
+/**
+ * Spacewalk design tokens — Mission Control / Universe canvas palette.
+ * Single source of truth for UI color (keep in sync with designTokens.js).
+ *
+ * Canonical hex:
+ *   sw-space #14141f | sw-panel #2a2d3a | sw-panel-raised #353846 | sw-panel-inset #1a1d24 | sw-void #0f1114
+ *   sw-border #3d4252 | sw-border-strong #4a5063
+ *   sw-blue-muted #69739c | sw-blue-muted-alpha50 (50% on #69739c) | sw-blue-bright #66a3ff
+ *   sw-blue-mid #4466cc | sw-blue-deep #2244aa | sw-blue-space #1a1a2e | sw-blue-void #0f0f1a
+ *   sw-accent-green #72db72 | sw-accent-orange #d9a84a | sw-accent-orange-soft #b8935a
+ *   sw-text-primary #e5e7eb | sw-text-secondary #a0aec0 | sw-text-muted #6b7280 | sw-text-tertiary #d1d5db | sw-text-disabled #9ca3af
+ *   sw-danger #dc2626 | sw-danger-soft #f87171 | sw-warning #f59e0b | sw-success #72db72 | sw-info #69739c
+ *   sw-white #ffffff | sw-black #000000
+ */
+
+:root {
+  /* Space & surfaces */
+  --sw-space: #14141f;
+  --sw-panel: #2a2d3a;
+  --sw-panel-raised: #353846;
+  --sw-panel-inset: #1a1d24;
+  --sw-void: #0f1114;
+  --sw-border: #3d4252;
+  --sw-border-strong: #4a5063;
+
+  /* Blue scale (primary UI family) */
+  --sw-blue-muted: #69739c;
+  --sw-blue-muted-alpha50: rgba(105, 115, 156, 0.5);
+  --sw-blue-muted-alpha32: rgba(105, 115, 156, 0.32);
+  --sw-blue-bright: #66a3ff;
+  --sw-blue-mid: #4466cc;
+  --sw-blue-deep: #2244aa;
+  --sw-blue-space: #1a1a2e;
+  --sw-blue-void: #0f0f1a;
+
+  /* Accents — green (Mission Control) + orange splashes, similar lightness band to #72db72 */
+  --sw-accent-green: #72db72;
+  --sw-accent-orange: #d9a84a;
+  --sw-accent-orange-soft: #b8935a;
+
+  /* Neutrals — text on dark UI */
+  --sw-text-primary: #e5e7eb;
+  --sw-text-secondary: #a0aec0;
+  --sw-text-muted: #6b7280;
+  --sw-text-tertiary: #d1d5db;
+  --sw-text-disabled: #9ca3af;
+  --sw-white: #ffffff;
+  --sw-black: #000000;
+
+  /* Semantic */
+  --sw-danger: #dc2626;
+  --sw-danger-soft: #f87171;
+  --sw-warning: #f59e0b;
+  --sw-success: #72db72;
+  --sw-info: #69739c;
+
+  /* RGB channels for rgba(var(--sw-*-rgb), alpha) — space-separated for modern CSS */
+  --sw-accent-green-rgb: 114 219 114;
+  --sw-blue-muted-rgb: 105 115 156;
+  --sw-accent-orange-rgb: 217 168 74;
+  --sw-danger-rgb: 220 38 38;
+  --sw-warning-rgb: 245 158 11;
+
+  /* Applet + embedded sidebar chrome (layout shell) */
+  --sw-applet-gap: 12px;
+  --sw-applet-padding: 12px;
+  /* Padded segmented applet row backdrop (behind rails + center) */
+  --sw-applet-segmented-bg: #1e1e2e;
+  /* Outer “goth” corners (asymmetric: deep on outside edge, tighter toward applet) */
+  --sw-chrome-radius-outer: 20px;
+  --sw-chrome-radius-inner: 8px;
+  /* Fixed applet rail width (AppletShell grid tracks + embedded SidebarPanel) */
+  --sw-sidebar-rail-width: 300px;
+  /* Narrow column between rail and center (hide-sidebar control) */
+  --sw-applet-rail-gutter-width: 22px;
+  --sw-sidebar-panel-max: 300px;
+  /* Inset around tab strip and tab panel content (buttons, lists, controls) */
+  --sw-sidebar-interactable-padding: 8px;
+  /* Cumulative dim: each nested surface with this overlay stacks darker (#000000 @ ~12.5% alpha) */
+  --sw-sidebar-stack-overlay: #00000020;
+  /* Collapsed rail: invisible hover strip width (no layout; absolute overlay) */
+  --sw-edge-hit-sensor-width: 12px;
+  --sw-edge-reveal-peek: 36px;
+
+  /* Sidebar panel content transitions (Sidebar.vue + optional mount wrap) */
+  --sw-sidebar-body-duration-leave: 240ms;
+  --sw-sidebar-body-duration-panel: 160ms;
+  --sw-sidebar-body-item-duration: 340ms;
+  --sw-sidebar-body-stagger-step: 42ms;
+  --sw-sidebar-body-stagger-start: 90ms;
+  --sw-sidebar-body-slide: 20px;
+  --sw-sidebar-mount-duration: 240ms;
+
+  /* App chrome */
+  --sw-titlebar-height: 80px;
+  --sw-app-canvas: #181825;
+
+  /* Sidebar tab strip */
+  --sw-tab-inactive-bg: #00000010;
+  --sw-tab-active-bg: #00000020;
+}
+
+/**
+ * Sidebar stacking: add this class to nested container divs inside sidebar tab content
+ * so each level paints --sw-sidebar-stack-overlay and reads progressively darker.
+ */
+.sw-sidebar-stack {
+  background-color: var(--sw-sidebar-stack-overlay);
+}

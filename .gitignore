@@ -1,0 +1,8 @@
+.vault/
+.vault/oauth-states.json
+.env
+node_modules/
+frontend/dist/
+backend/node_modules/
+*.log
+.DS_Store
