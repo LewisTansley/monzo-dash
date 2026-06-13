@@ -1,3 +1,7 @@
+export function filterActivePots(pots) {
+  return (pots || []).filter((p) => !p.deleted)
+}
+
 export function buildPotNamesSet(pots) {
   return new Set(
     pots.map((p) => (p.name || '').trim()).filter(Boolean)
