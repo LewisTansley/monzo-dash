@@ -7,7 +7,7 @@
   <div
     v-else
     class="applet-shell applet-shell--grid"
-    :class="{ 'applet-shell--segmented': segmented }">
+    :class="{ 'applet-shell--segmented': gridSegmented }">
     <div
       class="applet-shell__cell applet-shell__cell--left applet-shell__flex-rail"
       :class="{ 'is-collapsed': !effectiveLeftVisible }">
@@ -181,7 +181,7 @@ export default {
     isBare() {
       return this.variant === 'bare'
     },
-    segmented() {
+    gridSegmented() {
       if (!this.hasRightColumn) return this.effectiveLeftVisible
       return this.effectiveLeftVisible || this.effectiveRightVisible
     },
@@ -196,7 +196,7 @@ export default {
       )
     },
     centerChromeClass() {
-      if (!this.segmented) return null
+      if (!this.gridSegmented) return null
       return {
         'applet-shell__chrome': true,
         'applet-shell__chrome-center': true,

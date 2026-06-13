@@ -54,6 +54,7 @@ main.app-main {
   background-color: var(--sw-app-canvas);
   display: flex;
   flex-direction: column;
+  border-radius: 16px
 }
 
 .applet-view,

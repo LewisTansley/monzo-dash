@@ -24,33 +24,7 @@
 
       <div class="applet-center dashboard-center">
         <div class="dashboard-inner">
-        <header class="dash-header">
-          <h1>Dashboard</h1>
-          <div class="dash-header-actions">
-            <div class="period-toggle" role="group" aria-label="Analytics period">
-              <button
-                type="button"
-                class="period-toggle__btn"
-                :class="{ active: period === 'mtd' }"
-                @click="period = 'mtd'">
-                MTD
-              </button>
-              <button
-                type="button"
-                class="period-toggle__btn"
-                :class="{ active: period === 'ytd' }"
-                @click="period = 'ytd'">
-                YTD
-              </button>
-            </div>
-            <BaseButton variant="secondary" text="Refresh" @click="loadAll" />
-          </div>
-        </header>
-
         <p v-if="loadError" class="sw-message error">{{ loadError }}</p>
-        <p v-if="period === 'ytd' && ytd?.incomplete" class="sw-message warning">
-          {{ ytd.incompleteReason }}
-        </p>
         <p
           v-if="runFeedback"
           class="sw-message"
@@ -59,7 +33,33 @@
         </p>
 
         <section class="automation-strip">
-          <h2 class="sw-section-title">Quick automations</h2>
+          <div class="automation-strip__header">
+            <h2 class="sw-section-title">Quick automations</h2>
+            <div class="automation-strip__actions">
+              <div class="period-toggle" role="group" aria-label="Analytics period">
+                <button
+                  type="button"
+                  class="period-toggle__btn"
+                  :class="{ active: period === 'mtd' }"
+                  @click="period = 'mtd'">
+                  MTD
+                </button>
+                <button
+                  type="button"
+                  class="period-toggle__btn"
+                  :class="{
+                    active: period === 'ytd',
+                    'period-toggle__btn--incomplete': ytd?.incomplete
+                  }"
+                  :title="ytd?.incomplete ? ytd.incompleteReason : undefined"
+                  :aria-label="ytd?.incomplete ? `YTD — ${ytd.incompleteReason}` : 'Year to date'"
+                  @click="period = 'ytd'">
+                  YTD
+                </button>
+              </div>
+              <BaseButton variant="secondary" text="Refresh" @click="loadAll" />
+            </div>
+          </div>
           <div v-if="dashboardAutomations.length || dashboardGroups.length" class="automation-buttons">
             <button
               v-for="auto in dashboardAutomations"
@@ -68,7 +68,7 @@
               :class="automationRunClass(auto)"
               :disabled="!!runningId"
               @click="runAutomation(auto)">
-              {{ runningId === auto.id ? 'Running…' : auto.name }}
+              <span class="auto-btn__label">{{ runningId === auto.id ? 'Running…' : auto.name }}</span>
               <span v-if="runningId !== auto.id && automationRunSummary(auto)" class="auto-last" :class="runStatusClass(automationRunSummary(auto).status)">
                 {{ automationRunSummary(auto).time }} · {{ automationRunSummary(auto).short }}
               </span>
@@ -81,7 +81,7 @@
               :class="groupRunClass(group)"
               :disabled="!!runningId"
               @click="runGroup(group)">
-              {{ runningId === groupRunningId(group.id) ? 'Running…' : group.name }}
+              <span class="auto-btn__label">{{ runningId === groupRunningId(group.id) ? 'Running…' : group.name }}</span>
               <span v-if="runningId !== groupRunningId(group.id)" class="auto-meta">{{ (group.automationIds || []).length }} steps</span>
               <span v-if="runningId !== groupRunningId(group.id) && groupRunSummary(group)" class="auto-last" :class="runStatusClass(groupRunSummary(group).status)">
                 {{ groupRunSummary(group).time }} · {{ groupRunSummary(group).short }}
@@ -96,28 +96,73 @@
 
         <div class="hero-grid">
           <BalanceHeroCard :balance="balance" />
-          <MetricCard
-            :label="`${periodLabel} income`"
-            :value="analytics?.totalIncome"
-            :daily-series="analytics?.dailySeries || []"
-            series-key="income"
-            tone="positive" />
-          <MetricCard
-            :label="`${periodLabel} spend`"
-            :value="analytics?.totalSpend"
-            :daily-series="analytics?.dailySeries || []"
-            series-key="spend"
-            tone="negative" />
+          <ChartPanelShell @expand="openChartDetail('metric-income')">
+            <template #title>
+              <span class="metric-shell-title">{{ periodLabel }} income</span>
+            </template>
+            <MetricCard
+              key="grid-metric-income"
+              hide-label
+              :label="`${periodLabel} income`"
+              :value="analytics?.totalIncome"
+              :daily-series="analytics?.dailySeries || []"
+              series-key="income"
+              tone="positive" />
+          </ChartPanelShell>
+          <ChartPanelShell @expand="openChartDetail('metric-spend')">
+            <template #title>
+              <span class="metric-shell-title">{{ periodLabel }} spend</span>
+            </template>
+            <MetricCard
+              key="grid-metric-spend"
+              hide-label
+              :label="`${periodLabel} spend`"
+              :value="analytics?.totalSpend"
+              :daily-series="analytics?.dailySeries || []"
+              series-key="spend"
+              tone="negative" />
+          </ChartPanelShell>
         </div>
 
         <div class="chart-grid">
-          <TrendLineChart :daily-series="analytics?.dailySeries || []" :period="period" />
-          <CategoryDonutChart :by-category="analytics?.byCategory || {}" :period="period" />
+          <ChartPanelShell @expand="openChartDetail('trend')">
+            <template #title>
+              <h2 class="chart-shell-title">Income vs spend ({{ periodLabel }})</h2>
+            </template>
+            <TrendLineChart
+              key="grid-trend"
+              hide-title
+              :daily-series="analytics?.dailySeries || []"
+              :period="period"
+              @select-date="(payload) => onChartDateSelect('trend', payload)" />
+          </ChartPanelShell>
+          <ChartPanelShell @expand="openChartDetail('donut')">
+            <template #title>
+              <h2 class="chart-shell-title">Spending by category</h2>
+            </template>
+            <CategoryDonutChart
+              key="grid-donut"
+              hide-title
+              :by-category="analytics?.byCategory || {}"
+              :period="period"
+              @select-category="(payload) => onChartCategorySelect('donut', payload)" />
+          </ChartPanelShell>
         </div>
 
-        <BudgetProgressList
-          :budget-status="period === 'mtd' ? (projections?.budgetStatus || {}) : {}"
-          :by-category="analytics?.byCategory || {}" />
+        <ChartPanelShell @expand="openChartDetail('budget')">
+          <template #title>
+            <h2 class="chart-shell-title">Spending categories</h2>
+          </template>
+          <BudgetProgressList
+            key="grid-budget"
+            hide-title
+            embedded
+            :budget-status="period === 'mtd' ? (projections?.budgetStatus || {}) : {}"
+            :by-category="analytics?.byCategory || {}"
+            :selected-category="chartDetailCategoryKey"
+            @select-category="(payload) => onChartCategorySelect('budget', payload)"
+            @saved="onBudgetsSaved" />
+        </ChartPanelShell>
 
         <section class="summary-row panel">
           <div class="summary-stat">
@@ -176,6 +221,72 @@
       </template>
     </AppletShell>
 
+    <ChartDetailModal
+      :is-open="!!chartDetail"
+      :title="chartDetailTitle"
+      :loading="chartDrilldownLoading"
+      :selection-label="chartSelectionLabel"
+      :selection-meta="chartSelectionMeta"
+      :transactions="chartDrilldownTransactions"
+      :show-transactions="!!chartDetail?.selection"
+      :empty-message="chartEmptyMessage"
+      @close="closeChartDetail"
+      @clear-selection="clearChartSelection">
+      <template #chart>
+        <TrendLineChart
+          v-if="chartDetail?.source === 'trend'"
+          :key="chartModalKey"
+          expanded
+          hide-title
+          :daily-series="analytics?.dailySeries || []"
+          :period="period"
+          :selected-date="chartDetail?.selection?.date"
+          @select-date="(payload) => onChartDateSelect('trend', payload)" />
+        <CategoryDonutChart
+          v-else-if="chartDetail?.source === 'donut'"
+          :key="chartModalKey"
+          expanded
+          hide-title
+          :by-category="analytics?.byCategory || {}"
+          :period="period"
+          :selected-category="chartDetailCategorySelection"
+          @select-category="(payload) => onChartCategorySelect('donut', payload)" />
+        <BudgetProgressList
+          v-else-if="chartDetail?.source === 'budget'"
+          :key="chartModalKey"
+          expanded
+          hide-title
+          embedded
+          :budget-status="period === 'mtd' ? (projections?.budgetStatus || {}) : {}"
+          :by-category="analytics?.byCategory || {}"
+          :selected-category="chartDetailCategoryKey"
+          @select-category="(payload) => onChartCategorySelect('budget', payload)"
+          @saved="onBudgetsSaved" />
+        <MetricCard
+          v-else-if="chartDetail?.source === 'metric-income'"
+          :key="chartModalKey"
+          expanded
+          hide-label
+          :label="`${periodLabel} income`"
+          :value="analytics?.totalIncome"
+          :daily-series="analytics?.dailySeries || []"
+          series-key="income"
+          tone="positive"
+          @select-date="(payload) => onChartDateSelect('metric-income', payload)" />
+        <MetricCard
+          v-else-if="chartDetail?.source === 'metric-spend'"
+          :key="chartModalKey"
+          expanded
+          hide-label
+          :label="`${periodLabel} spend`"
+          :value="analytics?.totalSpend"
+          :daily-series="analytics?.dailySeries || []"
+          series-key="spend"
+          tone="negative"
+          @select-date="(payload) => onChartDateSelect('metric-spend', payload)" />
+      </template>
+    </ChartDetailModal>
+
     <BaseModal
       :is-open="!!confirmTarget"
       :title="confirmTitle"
@@ -201,10 +312,17 @@ import MetricCard from '../components/dashboard/MetricCard.vue'
 import TrendLineChart from '../components/dashboard/TrendLineChart.vue'
 import CategoryDonutChart from '../components/dashboard/CategoryDonutChart.vue'
 import BudgetProgressList from '../components/dashboard/BudgetProgressList.vue'
+import ChartPanelShell from '../components/charts/ChartPanelShell.vue'
+import ChartDetailModal from '../components/charts/ChartDetailModal.vue'
 import { monzoApi, analyticsApi, automationsApi, automationGroupsApi } from '../services/api.js'
 import { formatMoney } from '../utils/money.js'
 import { formatCategory, formatDay, monthFeedToColumn } from '../utils/transactions.js'
 import { summarizeAutomationRun, summarizeGroupRun } from '../utils/automationRuns.js'
+import {
+  ensureTransactionsForPeriod,
+  drilldownTransactions,
+  selectionSummary
+} from '../composables/useTransactionDrilldown.js'
 
 const CONFIRM_THRESHOLD = 5000
 
@@ -215,6 +333,8 @@ export default {
     SidebarPanel,
     BaseButton,
     BaseModal,
+    ChartPanelShell,
+    ChartDetailModal,
     BalanceHeroCard,
     MetricCard,
     TrendLineChart,
@@ -245,7 +365,10 @@ export default {
       confirmPreview: null,
       loadError: '',
       runFeedback: '',
-      runFeedbackStatus: ''
+      runFeedbackStatus: '',
+      chartDetail: null,
+      chartDrilldownLoading: false,
+      chartDrilldownTransactions: []
     }
   },
   computed: {
@@ -293,6 +416,64 @@ export default {
       if (this.runFeedbackStatus === 'success') return 'success'
       if (this.runFeedbackStatus === 'error') return 'error'
       return 'warning'
+    },
+    chartModalKey() {
+      if (!this.chartDetail) return 'modal-chart'
+      const sel = this.chartDetail.selection
+      const category = sel?.category || (sel?.categories ? 'other' : '')
+      const date = sel?.date || ''
+      return `${this.chartDetail.source}-${category}-${date}`
+    },
+    chartDetailTitle() {
+      if (!this.chartDetail) return ''
+      const titles = {
+        trend: `Income vs spend (${this.periodLabel})`,
+        donut: `Spending by category (${this.periodLabel})`,
+        budget: `Spending categories (${this.periodLabel})`,
+        'metric-income': `${this.periodLabel} income`,
+        'metric-spend': `${this.periodLabel} spend`
+      }
+      return titles[this.chartDetail.source] || 'Chart details'
+    },
+    chartDetailCategoryKey() {
+      const sel = this.chartDetail?.selection
+      if (!sel?.category || sel.category === 'other') return null
+      return sel.category
+    },
+    chartDetailCategorySelection() {
+      const sel = this.chartDetail?.selection
+      if (!sel) return null
+      if (sel.categories) return sel.categories
+      return sel.category || null
+    },
+    chartSelectionLabel() {
+      const sel = this.chartDetail?.selection
+      if (!sel) return ''
+      if (sel.label) return sel.label
+      if (sel.date) {
+        return new Date(sel.date + 'T12:00:00').toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })
+      }
+      return ''
+    },
+    chartSelectionMeta() {
+      const sel = this.chartDetail?.selection
+      if (!sel || !this.chartDrilldownTransactions.length) return ''
+      const summary = selectionSummary(this.chartDrilldownTransactions)
+      const parts = [`${summary.count} transactions`]
+      if (summary.spend > 0) parts.push(`spend ${formatMoney(summary.spend)}`)
+      if (summary.income > 0) parts.push(`income ${formatMoney(summary.income)}`)
+      return parts.join(' · ')
+    },
+    chartEmptyMessage() {
+      const sel = this.chartDetail?.selection
+      if (!sel) return 'No transactions'
+      if (sel.date) return `No transactions on ${this.chartSelectionLabel}`
+      if (sel.label) return `No ${sel.label} transactions for ${this.periodLabel}`
+      return `No transactions for ${this.periodLabel}`
     }
   },
   mounted() {
@@ -419,6 +600,75 @@ export default {
         this.loadMoreTransactions()
       }
     },
+    openChartDetail(source) {
+      this.chartDetail = { source, selection: null }
+      this.chartDrilldownTransactions = []
+      this.chartDrilldownLoading = false
+    },
+    closeChartDetail() {
+      this.chartDetail = null
+      this.chartDrilldownTransactions = []
+      this.chartDrilldownLoading = false
+    },
+    clearChartSelection() {
+      if (!this.chartDetail) return
+      this.chartDetail = { ...this.chartDetail, selection: null }
+      this.chartDrilldownTransactions = []
+      this.chartDrilldownLoading = false
+    },
+    onChartCategorySelect(source, payload) {
+      this.chartDetail = { source, selection: payload }
+      this.loadChartDrilldown()
+    },
+    onChartDateSelect(source, payload) {
+      const seriesKey =
+        source === 'metric-income'
+          ? 'income'
+          : source === 'metric-spend'
+            ? 'spend'
+            : payload.seriesKey
+      const selection = { ...payload, seriesKey: seriesKey || payload.seriesKey }
+      this.chartDetail = { source, selection }
+      this.loadChartDrilldown()
+    },
+    mergeTransactionMonths(columns) {
+      const byKey = new Map(this.transactionMonths.map((col) => [col.key, col]))
+      for (const col of columns) {
+        byKey.set(col.key, col)
+      }
+      this.transactionMonths = [...byKey.values()].sort((a, b) => b.key.localeCompare(a.key))
+    },
+    async loadChartDrilldown() {
+      const sel = this.chartDetail?.selection
+      if (!sel) {
+        this.chartDrilldownTransactions = []
+        return
+      }
+
+      this.chartDrilldownLoading = true
+      try {
+        const { columns, transactions } = await ensureTransactionsForPeriod({
+          period: this.period,
+          loadedMonths: this.transactionMonths,
+          fetchMonth: async (monthKey) => {
+            const { data } = await monzoApi.transactionMonth(monthKey)
+            return data
+          }
+        })
+        this.mergeTransactionMonths(columns)
+        this.chartDrilldownTransactions = drilldownTransactions({
+          transactions,
+          category: sel.categories || sel.category,
+          date: sel.date,
+          seriesKey: sel.seriesKey
+        })
+      } catch (e) {
+        this.chartDrilldownTransactions = []
+        this.loadError = this.loadError || e.response?.data?.error || e.message
+      } finally {
+        this.chartDrilldownLoading = false
+      }
+    },
     async loadAll() {
       this.loading = true
       this.loadError = ''
@@ -461,6 +711,14 @@ export default {
       }
 
       this.loading = false
+    },
+    async onBudgetsSaved() {
+      try {
+        const { data } = await analyticsApi.projections()
+        this.projections = data
+      } catch {
+        // parent save message already shown; user can Refresh if needed
+      }
     },
     groupRunningId(id) {
       return `group:${id}`
@@ -565,26 +823,6 @@ export default {
   min-width: 0;
 }
 
-.dash-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.dash-header h1 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--sw-text-primary);
-}
-
-.dash-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-}
-
 .period-toggle {
   display: inline-flex;
   background: var(--sw-applet-segmented-bg);
@@ -594,6 +832,10 @@ export default {
 }
 
 .period-toggle__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
   background: transparent;
   border: none;
   color: var(--sw-text-muted);
@@ -606,14 +848,37 @@ export default {
   letter-spacing: 0.02em;
 }
 
+.period-toggle__btn--incomplete {
+  color: var(--sw-accent-orange);
+}
+
+.period-toggle__btn--incomplete::after {
+  content: '';
+  position: absolute;
+  top: 0.2rem;
+  right: 0.25rem;
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 50%;
+  background: var(--sw-accent-orange);
+}
+
 .period-toggle__btn:hover {
   color: var(--sw-text-primary);
+}
+
+.period-toggle__btn--incomplete:hover {
+  color: var(--sw-accent-orange);
 }
 
 .period-toggle__btn.active {
   background: var(--sw-panel);
   color: var(--sw-text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.period-toggle__btn.active.period-toggle__btn--incomplete {
+  color: var(--sw-accent-orange);
 }
 
 .hero-grid,
@@ -749,8 +1014,23 @@ export default {
   margin: 0;
 }
 
-.automation-strip .sw-section-title {
+.automation-strip__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 0.5rem;
+}
+
+.automation-strip__header .sw-section-title {
+  margin: 0;
+}
+
+.automation-strip__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
 }
 
 .automation-empty {
@@ -759,9 +1039,10 @@ export default {
 }
 
 .automation-buttons {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
   gap: 0.5rem;
+  width: 100%;
 }
 
 .auto-btn {
@@ -778,8 +1059,17 @@ export default {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.15rem;
+  width: 100%;
+  min-width: 0;
   min-height: 44px;
   transition: background 0.15s ease, color 0.15s ease;
+}
+
+.auto-btn__label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .auto-btn:hover:not(:disabled) {
@@ -832,6 +1122,34 @@ export default {
   margin-top: 1rem;
 }
 
+.metric-shell-title,
+.chart-shell-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--sw-text-primary);
+}
+
+.metric-shell-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sw-text-muted);
+}
+
+.chart-grid :deep(.donut-chart),
+.chart-grid :deep(.trend-chart),
+:deep(.budget-progress) {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.hero-grid :deep(.metric-card) {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
 @media (max-width: 900px) {
   .hero-grid {
     grid-template-columns: 1fr;
@@ -839,6 +1157,17 @@ export default {
 
   .chart-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .automation-strip__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .automation-strip__actions {
+    justify-content: flex-end;
   }
 }
 </style>

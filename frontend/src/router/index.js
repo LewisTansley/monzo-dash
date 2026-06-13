@@ -63,8 +63,15 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach(async (to) => {
-  useAppletTransitionStore().beginRouteChange()
+function isCrossViewNavigation(to, from) {
+  if (!from.name) return false
+  return to.name !== from.name || to.path !== from.path
+}
+
+router.beforeEach(async (to, from) => {
+  if (isCrossViewNavigation(to, from)) {
+    useAppletTransitionStore().beginRouteChange()
+  }
 
   const vault = useVaultStore()
   if (!vault.exists && vault.unlocked === false) {
@@ -81,8 +88,10 @@ router.beforeEach(async (to) => {
   return true
 })
 
-router.afterEach(() => {
-  useAppletTransitionStore().scheduleRailsRestore()
+router.afterEach((to, from) => {
+  if (isCrossViewNavigation(to, from)) {
+    useAppletTransitionStore().scheduleRailsRestore()
+  }
 })
 
 export default router

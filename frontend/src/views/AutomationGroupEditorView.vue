@@ -1,5 +1,8 @@
 <template>
   <div class="editor-view">
+    <AppletShell variant="bare">
+      <div class="applet-center applet-center--page">
+        <div class="applet-center-inner">
     <header class="page-header">
       <h1>{{ isNew ? 'New automation group' : 'Edit automation group' }}</h1>
       <router-link to="/automations">Back to list</router-link>
@@ -36,9 +39,12 @@
                 type="checkbox"
                 :checked="form.automationIds.includes(auto.id)"
                 @change="toggleMember(auto.id)" />
-              <span>
-                {{ auto.name }}
-                <span v-if="!auto.enabled" class="warn">(disabled)</span>
+              <span class="member-label">
+                <span class="member-name">
+                  {{ auto.name }}
+                  <span v-if="!auto.enabled" class="warn">(disabled)</span>
+                </span>
+                <span class="member-description">{{ automationDescription(auto) }}</span>
               </span>
             </label>
           </div>
@@ -51,7 +57,10 @@
               :key="id"
               class="order-row">
               <span class="order-num">{{ idx + 1 }}.</span>
-              <span class="order-name">{{ automationName(id) }}</span>
+              <div class="order-name">
+                <span class="order-title">{{ automationName(id) }}</span>
+                <span class="order-description">{{ automationDescriptionById(id) }}</span>
+              </div>
               <div class="order-actions">
                 <button
                   type="button"
@@ -84,13 +93,17 @@
       <p v-if="dryRunResult" class="dry-result">{{ dryRunMessage }}</p>
       <p v-if="error" class="error">{{ error }}</p>
     </form>
+        </div>
+      </div>
+    </AppletShell>
   </div>
 </template>
 
 <script>
-import { BaseButton } from '../components/common'
-import { automationsApi, automationGroupsApi } from '../services/api.js'
+import { AppletShell, BaseButton } from '../components/common'
+import { automationsApi, automationGroupsApi, monzoApi } from '../services/api.js'
 import { formatMoney } from '../utils/money.js'
+import { describeAutomationOneLine } from '../utils/automationDisplay.js'
 
 function defaultForm() {
   return {
@@ -103,11 +116,12 @@ function defaultForm() {
 
 export default {
   name: 'AutomationGroupEditorView',
-  components: { BaseButton },
+  components: { AppletShell, BaseButton },
   data() {
     return {
       form: defaultForm(),
       automations: [],
+      pots: [],
       dryRunResult: null,
       error: ''
     }
@@ -138,14 +152,28 @@ export default {
     }
   },
   async mounted() {
-    const { data } = await automationsApi.list()
-    this.automations = data.automations || []
+    const [autosRes, potsRes] = await Promise.all([
+      automationsApi.list(),
+      monzoApi.pots()
+    ])
+    this.automations = autosRes.data.automations || []
+    this.pots = potsRes.data.pots || []
 
     if (!this.isNew) {
       await this.loadGroup()
     }
   },
   methods: {
+    displayContext() {
+      return { pots: this.pots, accountLabel: 'Main account' }
+    },
+    automationDescription(auto) {
+      return describeAutomationOneLine(auto, this.displayContext())
+    },
+    automationDescriptionById(id) {
+      const auto = this.automations.find((a) => a.id === id)
+      return auto ? this.automationDescription(auto) : ''
+    },
     automationName(id) {
       return this.automations.find((a) => a.id === id)?.name || 'Unknown'
     },
@@ -229,9 +257,8 @@ export default {
 
 <style scoped>
 .editor-view {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
+  height: 100%;
+  min-height: 0;
 }
 
 .page-header {
@@ -302,11 +329,28 @@ input:not([type='checkbox']) {
 
 .member-option {
   margin-bottom: 0;
+  align-items: flex-start;
+}
+
+.member-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.member-name {
+  font-size: 0.9rem;
+}
+
+.member-description {
+  font-size: 0.8rem;
+  color: var(--sw-text-muted);
+  line-height: 1.35;
 }
 
 .order-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   padding: 0.4rem 0;
   border-bottom: 1px solid var(--sw-border);
@@ -320,7 +364,19 @@ input:not([type='checkbox']) {
 
 .order-name {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.order-title {
   font-size: 0.9rem;
+}
+
+.order-description {
+  font-size: 0.8rem;
+  color: var(--sw-text-muted);
+  line-height: 1.35;
 }
 
 .order-actions {

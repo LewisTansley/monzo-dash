@@ -1,35 +1,12 @@
 <template>
   <div class="settings-view">
-    <AppletShell
-      v-model:left-visible="leftVisible"
-      :has-right-column="false">
-      <template #left>
-        <SidebarPanel
-          embedded
-          title="Settings"
-          :tabs="sectionTabs"
-          :default-tab="activeSection"
-          @tab-change="activeSection = $event">
-          <template #vault>
-            <div data-sidebar-stagger-root>
-              <p class="sw-muted section-hint">Encrypted local storage for credentials.</p>
-            </div>
-          </template>
-          <template #monzo>
-            <div data-sidebar-stagger-root>
-              <p class="sw-muted section-hint">OAuth client and Monzo connection.</p>
-            </div>
-          </template>
-          <template #budgets>
-            <div data-sidebar-stagger-root>
-              <p class="sw-muted section-hint">Monthly category limits for projections.</p>
-            </div>
-          </template>
-        </SidebarPanel>
-      </template>
-
-      <div class="applet-center">
+    <AppletShell variant="bare">
+      <div class="applet-center applet-center--page">
         <div class="applet-center-inner">
+          <SectionNavBar
+            v-model="activeSection"
+            :tabs="sectionTabs" />
+
           <p v-if="message" class="sw-message success">{{ message }}</p>
           <p v-if="error" class="sw-message error">{{ error }}</p>
 
@@ -114,21 +91,6 @@
                 <BaseButton variant="secondary" @click="lockVault">Lock vault</BaseButton>
               </div>
             </section>
-
-            <section v-show="activeSection === 'budgets'" class="sw-form-section">
-              <h2 class="sw-section-title">Category budgets (monthly)</h2>
-              <p class="sw-secondary">Amounts in pounds. Used for budget projections on the dashboard.</p>
-              <div v-for="cat in budgetCategories" :key="cat" class="budget-row">
-                <label>{{ cat.replace(/_/g, ' ') }}</label>
-                <input
-                  v-model="budgetInputs[cat]"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00" />
-              </div>
-              <BaseButton @click="saveBudgets">Save budgets</BaseButton>
-            </section>
           </template>
         </div>
       </div>
@@ -137,27 +99,19 @@
 </template>
 
 <script>
-import { AppletShell, SidebarPanel, BaseButton } from '../components/common'
+import { AppletShell, BaseButton, SectionNavBar } from '../components/common'
 import { useVaultStore } from '../stores/vault.js'
-import { vaultApi, authApi, budgetsApi } from '../services/api.js'
-import { parsePoundsToMinor } from '../utils/money.js'
-
-const BUDGET_CATEGORIES = [
-  'groceries', 'eating_out', 'transport', 'bills', 'entertainment',
-  'shopping', 'holidays', 'general', 'expenses', 'cash'
-]
+import { vaultApi, authApi } from '../services/api.js'
 
 export default {
   name: 'SettingsView',
-  components: { AppletShell, SidebarPanel, BaseButton },
+  components: { AppletShell, BaseButton, SectionNavBar },
   data() {
     return {
-      leftVisible: true,
       activeSection: 'vault',
       sectionTabs: [
-        { id: 'vault', text: 'VAULT', title: 'Vault' },
-        { id: 'monzo', text: 'MONZO', title: 'Monzo' },
-        { id: 'budgets', text: 'BUDGETS', title: 'Budgets' }
+        { id: 'vault', label: 'Vault' },
+        { id: 'monzo', label: 'Monzo' }
       ],
       passphrase: '',
       clientId: '',
@@ -166,8 +120,6 @@ export default {
       redirectUri: 'http://localhost:3001/api/auth/monzo/callback',
       message: '',
       error: '',
-      budgetCategories: BUDGET_CATEGORIES,
-      budgetInputs: {},
       finishingSetup: false,
       finishStatus: '',
       diagnosisHint: ''
@@ -200,7 +152,6 @@ export default {
     if (this.vault.unlocked) {
       await this.loadMonzoSetup()
       await this.loadCredentials()
-      await this.loadBudgets()
       if (this.vault.hasMonzoTokens && !this.vault.isMonzoConnected) {
         await this.loadDiagnosis()
       }
@@ -226,7 +177,6 @@ export default {
       try {
         await this.loadMonzoSetup()
         await this.loadCredentials()
-        await this.loadBudgets()
       } catch {
         // optional sections
       }
@@ -328,26 +278,6 @@ export default {
     async lockVault() {
       await this.vault.lock()
       this.activeSection = 'vault'
-    },
-    async loadBudgets() {
-      const { data } = await budgetsApi.get()
-      const inputs = {}
-      for (const cat of BUDGET_CATEGORIES) {
-        const minor = data.budgets?.[cat]
-        inputs[cat] = minor ? (minor / 100).toFixed(2) : ''
-      }
-      this.budgetInputs = inputs
-    },
-    async saveBudgets() {
-      const budgets = {}
-      for (const cat of BUDGET_CATEGORIES) {
-        const val = this.budgetInputs[cat]
-        if (val !== '' && val != null) {
-          budgets[cat] = parsePoundsToMinor(val)
-        }
-      }
-      await budgetsApi.set(budgets)
-      this.message = 'Budgets saved.'
     }
   }
 }
@@ -357,11 +287,6 @@ export default {
 .settings-view {
   height: 100%;
   min-height: 0;
-}
-
-.section-hint {
-  font-size: 0.85rem;
-  margin: 0;
 }
 
 .warn {
@@ -386,20 +311,6 @@ export default {
   color: var(--sw-text-secondary);
   font-size: 0.9rem;
   line-height: 1.7;
-}
-
-.budget-row {
-  display: grid;
-  grid-template-columns: 1fr 120px;
-  gap: 0.75rem;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.budget-row label {
-  text-transform: capitalize;
-  font-size: 0.9rem;
-  color: var(--sw-text-secondary);
 }
 
 .status.connected {

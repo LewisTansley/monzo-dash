@@ -1,6 +1,6 @@
 <template>
-  <div class="trend-chart panel">
-    <h2 class="trend-chart__title">Income vs spend ({{ periodLabel }})</h2>
+  <div class="trend-chart panel" :class="{ 'trend-chart--expanded': expanded }">
+    <h2 v-if="!hideTitle" class="trend-chart__title">Income vs spend ({{ periodLabel }})</h2>
     <div class="trend-chart__canvas">
       <canvas ref="canvasEl" />
     </div>
@@ -13,7 +13,8 @@ import {
   createChart,
   destroyChart,
   getCanvasContext,
-  observeChartResize
+  observeChartResize,
+  onChartSelect
 } from '../charts/chartSetup.js'
 import {
   chartColors,
@@ -28,8 +29,12 @@ export default {
   name: 'TrendLineChart',
   props: {
     dailySeries: { type: Array, default: () => [] },
-    period: { type: String, default: 'mtd', validator: (v) => ['mtd', 'ytd'].includes(v) }
+    period: { type: String, default: 'mtd', validator: (v) => ['mtd', 'ytd'].includes(v) },
+    expanded: { type: Boolean, default: false },
+    hideTitle: { type: Boolean, default: false },
+    selectedDate: { type: String, default: null }
   },
+  emits: ['select-date'],
   computed: {
     periodLabel() {
       return this.period === 'ytd' ? 'YTD' : 'MTD'
@@ -37,6 +42,7 @@ export default {
   },
   created() {
     this._chart = null
+    this._dateKeys = []
   },
   watch: {
     dailySeries: {
@@ -44,6 +50,9 @@ export default {
       handler() {
         this.scheduleRender()
       }
+    },
+    expanded() {
+      this.scheduleRender()
     }
   },
   mounted() {
@@ -64,21 +73,36 @@ export default {
       const el = this.$refs.canvasEl?.parentElement
       this._resizeObs = observeChartResize(el, () => this._chart)
     },
+    emitDate(index) {
+      const date = this._dateKeys[index]
+      if (!date) return
+      this.$emit('select-date', {
+        date,
+        label: new Date(date + 'T12:00:00').toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })
+      })
+    },
     renderChart() {
       if (this._unmounted) return
 
       const series = this.dailySeries || []
+      this._dateKeys = series.map((d) => d.date)
       const labels = series.map((d) => {
         const date = new Date(d.date + 'T12:00:00')
         return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
       })
       const income = series.map((d) => (d.income || 0) / 100)
       const spend = series.map((d) => (d.spend || 0) / 100)
+      const onClick = onChartSelect(({ index }) => this.emitDate(index))
 
       if (this._chart) {
         this._chart.data.labels = labels
         this._chart.data.datasets[0].data = income
         this._chart.data.datasets[1].data = spend
+        this._chart.options.onClick = onClick
         this._chart.update('none')
         return
       }
@@ -99,6 +123,7 @@ export default {
           responsive: true,
           maintainAspectRatio: false,
           interaction: { mode: 'index', intersect: false },
+          onClick,
           layout: {
             padding: { left: 4, right: 8, top: 4, bottom: 4 }
           },
@@ -159,5 +184,9 @@ export default {
   height: 240px;
   position: relative;
   overflow: hidden;
+}
+
+.trend-chart--expanded .trend-chart__canvas {
+  height: 360px;
 }
 </style>

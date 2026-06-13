@@ -27,6 +27,7 @@
                     {{ auto.enabled ? 'On' : 'Off' }}
                   </span>
                 </div>
+                <span class="sw-secondary list-description">{{ automationOneLine(auto) }}</span>
                 <span
                   v-if="automationRunSummary(auto)"
                   class="sw-run-hint"
@@ -50,6 +51,7 @@
                   <span>{{ group.name }}</span>
                   <span class="sw-list-meta">{{ (group.automationIds || []).length }} steps</span>
                 </div>
+                <span class="sw-secondary list-description">{{ groupOneLine(group) }}</span>
                 <span
                   v-if="groupRunSummary(group)"
                   class="sw-run-hint"
@@ -75,58 +77,46 @@
 
           <template v-if="editMode && editForm">
             <h2 class="detail-name">{{ isNewEdit ? 'New automation' : 'Edit automation' }}</h2>
-            <p class="sw-secondary edit-hint">Configure each section below.</p>
 
-            <div class="section-cards">
-              <div
-                class="sw-list-row sw-list-row-stacked section-card"
-                @click="activeEditModal = 'basics'">
-                <div class="sw-list-row-main">
-                  <span class="sw-label">Basics</span>
-                  <span class="section-chevron">›</span>
-                </div>
-                <span class="sw-secondary">{{ basicsSummary }}</span>
-              </div>
-              <div
-                class="sw-list-row sw-list-row-stacked section-card"
-                @click="activeEditModal = 'conditions'">
-                <div class="sw-list-row-main">
-                  <span class="sw-label">Conditions</span>
-                  <span class="section-chevron">›</span>
-                </div>
-                <span class="sw-secondary">{{ conditionsSummary }}</span>
-              </div>
-              <div
-                class="sw-list-row sw-list-row-stacked section-card"
-                @click="activeEditModal = 'action'">
-                <div class="sw-list-row-main">
-                  <span class="sw-label">Action</span>
-                  <span class="section-chevron">›</span>
-                </div>
-                <span class="sw-secondary">{{ actionSummary }}</span>
-              </div>
-            </div>
+            <SectionNavBar
+              v-model="activeEditSection"
+              :tabs="editSections" />
 
-            <div class="center-actions">
-              <BaseButton variant="secondary" text="Cancel" @click="cancelEdit" />
-              <BaseButton variant="secondary" text="Dry run" @click="dryRunEdit" />
-              <BaseButton text="Save" @click="saveEdit" />
+            <AutomationSectionPanel
+              :form="editForm"
+              :pots="pots"
+              :account-id="accountId"
+              :active-section="activeEditSection" />
+
+            <div v-if="editDescription" class="automation-description edit-preview">
+              <p><span class="sw-label">When</span> {{ editDescription.when }}</p>
+              <p><span class="sw-label">Then</span> {{ editDescription.then }}</p>
             </div>
 
             <p v-if="editDryRunResult" class="dry-result">{{ editDryRunMessage }}</p>
             <p v-if="editError" class="sw-message error">{{ editError }}</p>
-
-            <AutomationSectionModals
-              :form="editForm"
-              :pots="pots"
-              :account-id="accountId"
-              :active-modal="activeEditModal"
-              @update:active-modal="activeEditModal = $event" />
           </template>
 
           <template v-else-if="selectedItem">
+            <header class="detail-header">
+              <button type="button" class="detail-back" @click="clearSelection">
+                ← Back
+              </button>
+            </header>
             <h2 class="detail-name">{{ selectedItem.name }}</h2>
-            <p class="sw-secondary cond-summary">{{ selectedSummary }}</p>
+            <div v-if="selectedAutomationDescription" class="automation-description">
+              <p><span class="sw-label">When</span> {{ selectedAutomationDescription.when }}</p>
+              <p><span class="sw-label">Then</span> {{ selectedAutomationDescription.then }}</p>
+            </div>
+            <div v-else-if="selectedGroupDescription" class="automation-description">
+              <p class="sw-secondary group-intro">{{ selectedGroupDescription.summary }}</p>
+              <ol v-if="selectedGroupDescription.steps.length" class="group-steps">
+                <li v-for="(step, i) in selectedGroupDescription.steps" :key="i">
+                  <span class="step-name">{{ step.name }}</span>
+                  <span class="step-detail">{{ step.summary }}</span>
+                </li>
+              </ol>
+            </div>
             <span class="sw-badge" :class="{ on: selectedItem.enabled }">
               {{ selectedItem.enabled ? 'Enabled' : 'Disabled' }}
             </span>
@@ -174,6 +164,7 @@
               <BaseButton text="Save" @click="saveEdit" />
             </template>
             <template v-else-if="selectedKind === 'automation' && selectedAutomation">
+              <BaseButton variant="secondary" text="Back" @click="clearSelection" />
               <BaseButton
                 :text="isRunningSelected ? 'Running…' : 'Run'"
                 :disabled="!!runningId"
@@ -187,6 +178,7 @@
               <BaseButton variant="danger" text="Delete" @click="remove(selectedAutomation.id)" />
             </template>
             <template v-else-if="selectedKind === 'group' && selectedGroup">
+              <BaseButton variant="secondary" text="Back" @click="clearSelection" />
               <BaseButton
                 :text="isRunningSelected ? 'Running…' : 'Run'"
                 :disabled="!!runningId"
@@ -211,8 +203,8 @@
 </template>
 
 <script>
-import { AppletShell, SidebarPanel, BaseButton } from '../components/common'
-import AutomationSectionModals from '../components/automations/AutomationSectionModals.vue'
+import { AppletShell, SidebarPanel, BaseButton, SectionNavBar } from '../components/common'
+import AutomationSectionPanel from '../components/automations/AutomationSectionPanel.vue'
 import { automationsApi, automationGroupsApi, monzoApi } from '../services/api.js'
 import { formatMoney } from '../utils/money.js'
 import {
@@ -225,11 +217,16 @@ import {
   automationToForm,
   formToPayload
 } from '../utils/automationForm.js'
+import {
+  describeAutomation,
+  describeAutomationOneLine,
+  describeGroup as buildGroupDescription
+} from '../utils/automationDisplay.js'
 import { useVaultStore } from '../stores/vault.js'
 
 export default {
   name: 'AutomationsView',
-  components: { AppletShell, SidebarPanel, BaseButton, AutomationSectionModals },
+  components: { AppletShell, SidebarPanel, BaseButton, SectionNavBar, AutomationSectionPanel },
   data() {
     return {
       leftVisible: true,
@@ -253,7 +250,12 @@ export default {
       editMode: false,
       editForm: null,
       editAutomationId: null,
-      activeEditModal: null,
+      activeEditSection: 'basics',
+      editSections: [
+        { id: 'basics', label: 'Basics' },
+        { id: 'conditions', label: 'Conditions' },
+        { id: 'action', label: 'Action' }
+      ],
       pots: [],
       accountId: '',
       editError: '',
@@ -272,10 +274,20 @@ export default {
     selectedItem() {
       return this.selectedAutomation || this.selectedGroup
     },
-    selectedSummary() {
-      if (this.selectedAutomation) return this.summarize(this.selectedAutomation)
-      if (this.selectedGroup) return this.summarizeGroup(this.selectedGroup)
-      return ''
+    displayContext() {
+      return { pots: this.pots, accountLabel: 'Main account' }
+    },
+    selectedAutomationDescription() {
+      if (!this.selectedAutomation) return null
+      return describeAutomation(this.selectedAutomation, this.displayContext)
+    },
+    selectedGroupDescription() {
+      if (!this.selectedGroup) return null
+      return buildGroupDescription(this.selectedGroup, this.automations, this.displayContext)
+    },
+    editDescription() {
+      if (!this.editForm) return null
+      return describeAutomation(formToPayload(this.editForm, this.accountId), this.displayContext)
     },
     selectedDryRun() {
       if (this.selectedKind === 'automation' && this.selectedId) {
@@ -309,51 +321,6 @@ export default {
     },
     isNewEdit() {
       return !this.editAutomationId
-    },
-    basicsSummary() {
-      if (!this.editForm) return ''
-      const parts = []
-      parts.push(this.editForm.name || 'Untitled')
-      parts.push(this.editForm.enabled ? 'Enabled' : 'Disabled')
-      parts.push(this.editForm.showOnDashboard ? 'On dashboard' : 'Hidden from dashboard')
-      return parts.join(' · ')
-    },
-    conditionsSummary() {
-      if (!this.editForm) return ''
-      const logic = this.editForm.conditionLogic === 'any' ? 'any' : 'all'
-      const conds = (this.editForm.conditions || []).map((c) => {
-        const val =
-          c.value?.mode === 'percent'
-            ? `${c.value.amount}%`
-            : c.valueInput
-              ? `£${c.valueInput}`
-              : formatMoney(c.value?.amount || 0)
-        return `${c.operator} ${val}`
-      })
-      return conds.length
-        ? `${conds.length} condition(s) · match ${logic}: ${conds.join(', ')}`
-        : 'No conditions'
-    },
-    actionSummary() {
-      if (!this.editForm?.action) return ''
-      const action = this.editForm.action
-      const type = action.type === 'deposit' ? 'Deposit' : 'Withdraw'
-      const potId = action.type === 'deposit' ? action.destination?.id : action.source?.id
-      const potName = this.pots.find((p) => p.id === potId)?.name || 'pot'
-      const amt = action.amount
-      let amtStr
-      if (amt?.mode === 'percent') {
-        amtStr = `${amt.value}%`
-      } else if (amt?.mode === 'remainder') {
-        amtStr = 'remainder above'
-      } else if (amt?.mode === 'remainder_below') {
-        amtStr = 'remainder below'
-      } else {
-        amtStr = this.editForm.actionAmountInput
-          ? `£${this.editForm.actionAmountInput}`
-          : formatMoney(amt?.value || 0)
-      }
-      return `${type} to ${potName} · ${amtStr}`
     },
     editDryRunMessage() {
       if (!this.editDryRunResult) return ''
@@ -395,6 +362,12 @@ export default {
     groupRunningId(id) {
       return `group:${id}`
     },
+    automationOneLine(auto) {
+      return describeAutomationOneLine(auto, this.displayContext)
+    },
+    groupOneLine(group) {
+      return buildGroupDescription(group, this.automations, this.displayContext).summary
+    },
     setRunFeedback(status, message) {
       this.runFeedbackStatus = status
       this.runFeedback = message
@@ -418,9 +391,19 @@ export default {
         await this.startEdit(edit)
       }
     },
+    clearSelection() {
+      this.selectedKind = null
+      this.selectedId = null
+      this.runFeedback = ''
+      this.runFeedbackStatus = ''
+    },
     selectItem(kind, id) {
       if (this.editMode) {
         this.cancelEdit()
+      }
+      if (this.selectedKind === kind && this.selectedId === id && !this.editMode) {
+        this.clearSelection()
+        return
       }
       this.selectedKind = kind
       this.selectedId = id
@@ -441,8 +424,7 @@ export default {
             (this.selectedKind === 'automation' && this.automations.some((a) => a.id === this.selectedId)) ||
             (this.selectedKind === 'group' && this.groups.some((g) => g.id === this.selectedId))
           if (!stillExists) {
-            this.selectedKind = null
-            this.selectedId = null
+            this.clearSelection()
           }
         }
       } catch (e) {
@@ -460,14 +442,14 @@ export default {
       this.editMode = true
       this.editError = ''
       this.editDryRunResult = null
-      this.activeEditModal = null
+      this.activeEditSection = 'basics'
       this.runFeedback = ''
       this.runFeedbackStatus = ''
     },
     async startEdit(id) {
       this.editError = ''
       this.editDryRunResult = null
-      this.activeEditModal = null
+      this.activeEditSection = 'basics'
       try {
         const { data } = await automationsApi.get(id)
         this.editForm = automationToForm(data.automation)
@@ -486,7 +468,7 @@ export default {
       this.editMode = false
       this.editForm = null
       this.editAutomationId = null
-      this.activeEditModal = null
+      this.activeEditSection = 'basics'
       this.editError = ''
       this.editDryRunResult = null
       this.clearEditQuery()
@@ -505,7 +487,7 @@ export default {
         this.editMode = false
         this.editForm = null
         this.editAutomationId = null
-        this.activeEditModal = null
+        this.activeEditSection = 'basics'
         this.editDryRunResult = null
         this.clearEditQuery()
         await this.load()
@@ -551,26 +533,6 @@ export default {
     },
     editGroup(id) {
       this.$router.push({ name: 'AutomationGroupEditor', params: { id } })
-    },
-    summarize(auto) {
-      const conds = (auto.conditions || [])
-        .map((c) => `${c.operator} ${c.value?.mode === 'percent' ? c.value.amount + '%' : formatMoney(c.value?.amount)}`)
-        .join(` ${auto.conditionLogic || 'all'} `)
-      const amt = auto.action?.amount
-      const amtStr =
-        amt?.mode === 'percent'
-          ? `${amt.value}%`
-          : amt?.mode === 'remainder'
-            ? 'remainder above'
-            : amt?.mode === 'remainder_below'
-              ? 'remainder below'
-              : formatMoney(amt?.value)
-      return `${conds || 'no conditions'} → ${auto.action?.type} ${amtStr}`
-    },
-    summarizeGroup(group) {
-      const names = (group.automationIds || [])
-        .map((id) => this.automations.find((a) => a.id === id)?.name || 'Unknown')
-      return names.length ? names.join(' → ') : 'No members'
     },
     async dryRun(id) {
       const { data } = await automationsApi.dryRun(id)
@@ -636,8 +598,7 @@ export default {
       if (!confirm('Delete this automation?')) return
       await automationsApi.delete(id)
       if (this.selectedKind === 'automation' && this.selectedId === id) {
-        this.selectedKind = null
-        this.selectedId = null
+        this.clearSelection()
       }
       await this.load()
     },
@@ -645,8 +606,7 @@ export default {
       if (!confirm('Delete this automation group?')) return
       await automationGroupsApi.delete(id)
       if (this.selectedKind === 'group' && this.selectedId === id) {
-        this.selectedKind = null
-        this.selectedId = null
+        this.clearSelection()
       }
       await this.load()
     }
@@ -660,36 +620,91 @@ export default {
   min-height: 0;
 }
 
+.detail-header {
+  margin: 0 0 0.75rem;
+}
+
+.detail-back {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--sw-text-secondary, #a0aec0);
+  transition: color 0.2s ease;
+}
+
+.detail-back:hover {
+  color: var(--sw-text-primary, #e5e7eb);
+}
+
 .detail-name {
-  margin: 0 0 0.5rem;
+  margin: 0 0 1rem;
   font-size: 1.25rem;
   font-weight: 500;
 }
 
-.edit-hint {
-  margin: 0 0 1rem;
-  font-size: 0.9rem;
+.list-description {
+  display: block;
+  margin: 0.15rem 0 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
-.section-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-}
-
-.section-card {
-  cursor: pointer;
-}
-
-.section-chevron {
-  color: var(--sw-text-muted);
-  font-size: 1.1rem;
-}
-
-.cond-summary {
+.automation-description {
   margin: 0 0 0.75rem;
   font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.automation-description p {
+  margin: 0 0 0.5rem;
+}
+
+.automation-description p:last-child {
+  margin-bottom: 0;
+}
+
+.automation-description .sw-label {
+  margin-right: 0.35rem;
+}
+
+.edit-preview {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--sw-border);
+  border-radius: 6px;
+  background: var(--sw-panel-inset);
+}
+
+.group-intro {
+  margin: 0 0 0.5rem;
+}
+
+.group-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.group-steps li {
+  margin-bottom: 0.5rem;
+}
+
+.group-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.step-name {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.15rem;
+}
+
+.step-detail {
+  display: block;
+  color: var(--sw-text-secondary);
+  font-size: 0.85rem;
 }
 
 .running-note {

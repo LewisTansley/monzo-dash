@@ -1,9 +1,11 @@
 <template>
   <div class="budget-view">
+    <AppletShell variant="bare">
+      <div class="applet-center applet-center--page">
+        <div class="applet-center-inner">
     <header class="page-header">
       <div>
-        <h1>Affordability checker</h1>
-        <p class="muted">Model estimated income and outgoings to see what you can afford — separate from your Monzo spending limits in Settings.</p>
+        <p class="muted page-header__subtitle">Model estimated income and outgoings to see what you can afford — separate from your Monzo spending limits in Settings.</p>
       </div>
       <BaseButton text="Add item" @click="openCreate" />
     </header>
@@ -133,6 +135,9 @@
         </section>
       </template>
     </template>
+        </div>
+      </div>
+    </AppletShell>
 
     <BaseModal
       :is-open="modalOpen"
@@ -199,7 +204,7 @@
 </template>
 
 <script>
-import { BaseButton, BaseModal } from '../components/common'
+import { AppletShell, BaseButton, BaseModal } from '../components/common'
 import { budgetApi } from '../services/api.js'
 import { formatMoney, parsePoundsToMinor, minorToPoundsInput } from '../utils/money.js'
 
@@ -228,7 +233,7 @@ function emptyForm() {
 
 export default {
   name: 'BudgetView',
-  components: { BaseButton, BaseModal },
+  components: { AppletShell, BaseButton, BaseModal },
   data() {
     return {
       items: [],
@@ -361,10 +366,6 @@ export default {
 .budget-view {
   height: 100%;
   min-height: 0;
-  overflow-y: auto;
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
 }
 
 .page-header {
@@ -375,9 +376,8 @@ export default {
   margin-bottom: 1.5rem;
 }
 
-.page-header h1 {
+.page-header__subtitle {
   margin: 0;
-  font-size: 1.5rem;
 }
 
 .muted {

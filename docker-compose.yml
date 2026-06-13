@@ -1,0 +1,18 @@
+services:
+  monzo-dash:
+    build: .
+    ports:
+      - "${API_PORT:-3001}:3001"
+      - "${FRONTEND_PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      API_PORT: 3001
+      FRONTEND_PORT: 8080
+      MONZO_REDIRECT_URI: http://localhost:3001/api/auth/monzo/callback
+      FRONTEND_URL: http://localhost:8080
+      VAULT_PATH: .vault/monzo.vault.enc
+    volumes:
+      - ./.vault:/app/.vault
+    restart: unless-stopped

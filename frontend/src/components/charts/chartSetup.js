@@ -51,6 +51,14 @@ export function getCanvasContext(canvasEl) {
   return canvasEl?.getContext('2d') ?? null
 }
 
+export function onChartSelect(handler) {
+  return (_event, elements, chart) => {
+    if (!elements?.length) return
+    const { index } = elements[0]
+    handler({ index, label: chart.data.labels?.[index] })
+  }
+}
+
 export function observeChartResize(containerEl, getChart) {
   if (!containerEl || typeof ResizeObserver === 'undefined') return null
 

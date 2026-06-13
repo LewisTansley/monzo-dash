@@ -1,6 +1,6 @@
 <template>
-  <div class="metric-card">
-    <span class="metric-card__label">{{ label }}</span>
+  <div class="metric-card" :class="{ 'metric-card--expanded': expanded }">
+    <span v-if="!hideLabel" class="metric-card__label">{{ label }}</span>
     <span class="metric-card__value" :class="tone">{{ formatMoney(value) }}</span>
     <div class="metric-card__sparkline">
       <canvas ref="canvasEl" />
@@ -13,9 +13,19 @@ import {
   ensureChartsRegistered,
   createChart,
   destroyChart,
-  getCanvasContext
+  getCanvasContext,
+  observeChartResize,
+  onChartSelect
 } from '../charts/chartSetup.js'
-import { chartColors, lineDataset, rgba } from '../charts/chartTheme.js'
+import {
+  chartColors,
+  lineDataset,
+  rgba,
+  axisTicks,
+  axisGrid,
+  tooltipConfig,
+  formatPoundsTooltip
+} from '../charts/chartTheme.js'
 import { formatMoney } from '../../utils/money.js'
 
 export default {
@@ -25,10 +35,14 @@ export default {
     value: { type: Number, default: 0 },
     dailySeries: { type: Array, default: () => [] },
     seriesKey: { type: String, default: 'spend', validator: (v) => ['spend', 'income'].includes(v) },
-    tone: { type: String, default: 'neutral', validator: (v) => ['neutral', 'positive', 'negative'].includes(v) }
+    tone: { type: String, default: 'neutral', validator: (v) => ['neutral', 'positive', 'negative'].includes(v) },
+    expanded: { type: Boolean, default: false },
+    hideLabel: { type: Boolean, default: false }
   },
+  emits: ['select-date'],
   created() {
     this._chart = null
+    this._dateKeys = []
   },
   watch: {
     dailySeries: {
@@ -39,14 +53,19 @@ export default {
     },
     seriesKey() {
       this.scheduleRender()
+    },
+    expanded() {
+      this.scheduleRender()
     }
   },
   mounted() {
     ensureChartsRegistered()
     this.scheduleRender()
+    if (this.expanded) this.observeResize()
   },
   beforeUnmount() {
     this._unmounted = true
+    this._resizeObs?.disconnect()
     this._chart = destroyChart(this._chart)
   },
   methods: {
@@ -54,12 +73,32 @@ export default {
     scheduleRender() {
       this.$nextTick(() => this.renderChart())
     },
+    observeResize() {
+      const el = this.$refs.canvasEl?.parentElement
+      this._resizeObs = observeChartResize(el, () => this._chart)
+    },
+    emitDate(index) {
+      const date = this._dateKeys[index]
+      if (!date) return
+      this.$emit('select-date', {
+        date,
+        seriesKey: this.seriesKey,
+        label: new Date(date + 'T12:00:00').toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })
+      })
+    },
     renderChart() {
       if (this._unmounted) return
 
-      const series = (this.dailySeries || []).slice(-14)
+      const sliceLen = this.expanded ? this.dailySeries.length : 14
+      const series = (this.dailySeries || []).slice(-sliceLen)
+      this._dateKeys = series.map((d) => d.date)
       const color = this.seriesKey === 'income' ? chartColors.income : chartColors.spend
       const values = series.map((d) => (d[this.seriesKey] || 0) / 100)
+      const onClick = onChartSelect(({ index }) => this.emitDate(index))
 
       if (!series.length) {
         this._chart = destroyChart(this._chart)
@@ -70,7 +109,12 @@ export default {
         this._chart.data.labels = series.map((d) => d.date)
         this._chart.data.datasets[0].data = values
         this._chart.data.datasets[0].borderColor = color
-        this._chart.data.datasets[0].backgroundColor = rgba(color, 0.15)
+        this._chart.data.datasets[0].backgroundColor = rgba(color, this.expanded ? 0.12 : 0.15)
+        this._chart.options.onClick = onClick
+        this._chart.options.plugins.legend.display = this.expanded
+        this._chart.options.plugins.tooltip.enabled = this.expanded
+        this._chart.options.scales.x.display = this.expanded
+        this._chart.options.scales.y.display = this.expanded
         this._chart.update('none')
         return
       }
@@ -87,10 +131,33 @@ export default {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          onClick,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: this.expanded },
+            tooltip: this.expanded
+              ? {
+                  ...tooltipConfig(),
+                  callbacks: {
+                    label: (ctx) => `${ctx.dataset.label}: ${formatPoundsTooltip(ctx.parsed.y)}`
+                  }
+                }
+              : { enabled: false }
+          },
           scales: {
-            x: { display: false },
-            y: { display: false }
+            x: {
+              display: this.expanded,
+              ticks: axisTicks(),
+              grid: { display: false }
+            },
+            y: {
+              display: this.expanded,
+              ticks: {
+                ...axisTicks(),
+                callback: (v) => `£${v}`
+              },
+              grid: axisGrid()
+            }
           },
           animation: { duration: 400 }
         }
@@ -140,5 +207,9 @@ export default {
   width: 100%;
   max-width: 100%;
   overflow: hidden;
+}
+
+.metric-card--expanded .metric-card__sparkline {
+  min-height: 280px;
 }
 </style>

@@ -64,6 +64,20 @@
   /* Applet + embedded sidebar chrome (layout shell) */
   --sw-applet-gap: 12px;
   --sw-applet-padding: 12px;
+  --sw-page-edge-inset: 16px;
+  --sw-content-max-width: 960px;
+  /* Rail + gutter + inner center pad (matches grid center content start) */
+  --sw-phantom-rail-inset: calc(
+    var(--sw-applet-padding) + var(--sw-sidebar-rail-width) + var(--sw-applet-rail-gutter-width)
+  );
+  /* Responsive: phantom inset on wide screens, graceful fallback on narrow */
+  --sw-page-inline-inset: max(
+    var(--sw-page-edge-inset),
+    min(
+      var(--sw-phantom-rail-inset),
+      calc((100% - var(--sw-content-max-width) - 2 * var(--sw-page-edge-inset)) / 2)
+    )
+  );
   /* Padded segmented applet row backdrop (behind rails + center) */
   --sw-applet-segmented-bg: #1e1e2e;
   /* Outer “goth” corners (asymmetric: deep on outside edge, tighter toward applet) */

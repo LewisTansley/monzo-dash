@@ -37,7 +37,7 @@ Copy `.env.example` to `.env` to override ports or vault path.
 2. Create a vault with a passphrase (stored encrypted in `.vault/monzo.vault.enc` — gitignored)
 3. Enter your Monzo client ID and secret
 4. Click **Connect Monzo** and approve access in the Monzo app
-5. Set optional category budgets in Settings and build automations on the Automations page
+5. Set optional category budgets on the Dashboard spending categories panel and build automations on the Automations page
 
 ## Security
 

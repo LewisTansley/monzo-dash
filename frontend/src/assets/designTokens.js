@@ -43,7 +43,9 @@ export const designTokens = {
   warningRgb: '245, 158, 11',
 
   appletGap: '12px',
-  appletPadding: '16px',
+  appletPadding: '12px',
+  pageEdgeInset: '16px',
+  contentMaxWidth: '960px',
   appletSegmentedBg: '#1e1e2e',
   chromeRadiusOuter: '20px',
   chromeRadiusInner: '8px',

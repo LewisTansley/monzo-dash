@@ -14,6 +14,7 @@
 <script>
 export default {
   name: 'BaseButton',
+  inheritAttrs: false,
   props: {
     text: {
       type: String,
@@ -57,6 +58,7 @@ export default {
   },
   methods: {
     handleClick(event) {
+      if (!event) return
       if (this.disabled) {
         event.preventDefault()
         return
@@ -64,7 +66,7 @@ export default {
       if (this.buttonType !== 'submit') {
         event.preventDefault()
       }
-      this.$emit('click')
+      this.$emit('click', event)
     }
   }
 }

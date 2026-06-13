@@ -1,9 +1,9 @@
 <template>
   <div class="transactions-kanban-view">
     <AppletShell variant="bare">
+      <div class="applet-center applet-center--full-bleed">
       <div class="kanban-shell">
         <header class="kanban-header">
-          <h1>Transactions</h1>
           <p class="sw-muted kanban-hint">Scroll right for older months · scroll inside a column for that month&apos;s transactions</p>
         </header>
 
@@ -20,28 +20,20 @@
             :key="column.key"
             class="kanban-column">
             <div class="kanban-column-header">
-              <span class="kanban-column-title">{{ column.label }}</span>
+              <span class="sw-label kanban-column-title">{{ column.label }}</span>
               <span class="kanban-column-count">{{ column.transactions.length }}</span>
             </div>
             <MonthColumnChart
+              embedded
               :transactions="column.transactions"
-              :month-key="column.key" />
+              :month-key="column.key"
+              @expand="openColumnChart(column)"
+              @select-category="(payload) => onColumnCategorySelect(column, payload)"
+              @select-date="(payload) => onColumnDateSelect(column, payload)" />
             <div class="kanban-column-body">
-              <div
-                v-for="tx in column.transactions"
-                :key="tx.id"
-                class="sw-list-row tx-row">
-                <div class="tx-body">
-                  <span class="tx-desc">{{ tx.description }}</span>
-                  <span class="tx-meta">
-                    {{ formatCategory(tx.category) }} · {{ formatDay(tx.created) }}
-                  </span>
-                </div>
-                <span class="tx-amount" :class="{ credit: tx.amount > 0 }">
-                  {{ formatMoney(tx.amount) }}
-                </span>
-              </div>
-              <p v-if="!column.transactions.length" class="sw-empty tx-month-empty">No transactions</p>
+              <TransactionList
+                :transactions="column.transactions"
+                empty-message="No transactions" />
             </div>
           </div>
 
@@ -53,23 +45,51 @@
           </div>
         </div>
       </div>
+      </div>
     </AppletShell>
+
+    <ChartDetailModal
+      :is-open="!!columnChartDetail"
+      :title="columnChartTitle"
+      :loading="false"
+      :selection-label="columnSelectionLabel"
+      :selection-meta="columnSelectionMeta"
+      :transactions="columnDrilldownTransactions"
+      :show-transactions="!!columnChartDetail?.selection"
+      :empty-message="columnEmptyMessage"
+      @close="closeColumnChart"
+      @clear-selection="clearColumnSelection">
+      <template #chart>
+        <MonthColumnChart
+          v-if="columnChartDetail"
+          :key="`${columnChartDetail.monthKey}-${columnChartDetail.selection?.category || ''}-${columnChartDetail.selection?.date || ''}`"
+          expanded
+          :transactions="columnChartDetail.transactions"
+          :month-key="columnChartDetail.monthKey"
+          @select-category="(payload) => onColumnCategorySelect(columnChartDetail, payload)"
+          @select-date="(payload) => onColumnDateSelect(columnChartDetail, payload)" />
+      </template>
+    </ChartDetailModal>
   </div>
 </template>
 
 <script>
 import { AppletShell } from '../components/common'
 import MonthColumnChart from '../components/transactions/MonthColumnChart.vue'
+import TransactionList from '../components/transactions/TransactionList.vue'
+import ChartDetailModal from '../components/charts/ChartDetailModal.vue'
 import { monzoApi } from '../services/api.js'
 import { formatMoney } from '../utils/money.js'
-import { formatCategory, formatDay, monthFeedToColumn } from '../utils/transactions.js'
+import { monthFeedToColumn } from '../utils/transactions.js'
+import { spendableTransactions } from '../utils/transactionAnalytics.js'
+import { drilldownTransactions, selectionSummary } from '../composables/useTransactionDrilldown.js'
 
 const HORIZONTAL_LOAD_THRESHOLD = 200
 const MAX_PREFETCH_ATTEMPTS = 12
 
 export default {
   name: 'TransactionsKanbanView',
-  components: { AppletShell, MonthColumnChart },
+  components: { AppletShell, MonthColumnChart, TransactionList, ChartDetailModal },
   data() {
     return {
       columns: [],
@@ -78,7 +98,33 @@ export default {
       hasMore: false,
       nextMonth: null,
       endMessage: '',
-      loadError: ''
+      loadError: '',
+      columnChartDetail: null,
+      columnDrilldownTransactions: []
+    }
+  },
+  computed: {
+    columnChartTitle() {
+      if (!this.columnChartDetail) return ''
+      return `${this.columnChartDetail.label} overview`
+    },
+    columnSelectionLabel() {
+      return this.columnChartDetail?.selection?.label || ''
+    },
+    columnSelectionMeta() {
+      if (!this.columnDrilldownTransactions.length) return ''
+      const summary = selectionSummary(this.columnDrilldownTransactions)
+      const parts = [`${summary.count} transactions`]
+      if (summary.spend > 0) parts.push(`spend ${formatMoney(summary.spend)}`)
+      if (summary.income > 0) parts.push(`income ${formatMoney(summary.income)}`)
+      return parts.join(' · ')
+    },
+    columnEmptyMessage() {
+      const sel = this.columnChartDetail?.selection
+      if (!sel) return 'No transactions'
+      if (sel.date) return `No transactions on ${sel.label}`
+      if (sel.label) return `No ${sel.label} transactions this month`
+      return 'No transactions'
     }
   },
   mounted() {
@@ -86,8 +132,6 @@ export default {
   },
   methods: {
     formatMoney,
-    formatCategory,
-    formatDay,
     applyMonthFeed(data, { append = false } = {}) {
       const column = monthFeedToColumn(data)
 
@@ -183,6 +227,63 @@ export default {
       if (distanceFromRight < HORIZONTAL_LOAD_THRESHOLD) {
         this.loadMoreMonths()
       }
+    },
+    openColumnChart(column) {
+      this.columnChartDetail = {
+        monthKey: column.key,
+        label: column.label,
+        transactions: column.transactions,
+        selection: null
+      }
+      this.columnDrilldownTransactions = []
+    },
+    closeColumnChart() {
+      this.columnChartDetail = null
+      this.columnDrilldownTransactions = []
+    },
+    clearColumnSelection() {
+      if (!this.columnChartDetail) return
+      this.columnChartDetail = { ...this.columnChartDetail, selection: null }
+      this.columnDrilldownTransactions = []
+    },
+    onColumnCategorySelect(column, payload) {
+      if (!this.columnChartDetail || this.columnChartDetail.monthKey !== column.key) {
+        this.columnChartDetail = {
+          monthKey: column.key,
+          label: column.label,
+          transactions: column.transactions,
+          selection: payload
+        }
+      } else {
+        this.columnChartDetail = { ...this.columnChartDetail, selection: payload }
+      }
+      this.refreshColumnDrilldown()
+    },
+    onColumnDateSelect(column, payload) {
+      if (!this.columnChartDetail || this.columnChartDetail.monthKey !== column.key) {
+        this.columnChartDetail = {
+          monthKey: column.key,
+          label: column.label,
+          transactions: column.transactions,
+          selection: payload
+        }
+      } else {
+        this.columnChartDetail = { ...this.columnChartDetail, selection: payload }
+      }
+      this.refreshColumnDrilldown()
+    },
+    refreshColumnDrilldown() {
+      const sel = this.columnChartDetail?.selection
+      if (!sel || !this.columnChartDetail) {
+        this.columnDrilldownTransactions = []
+        return
+      }
+      const base = spendableTransactions(this.columnChartDetail.transactions)
+      this.columnDrilldownTransactions = drilldownTransactions({
+        transactions: base,
+        category: sel.category,
+        date: sel.date
+      })
     }
   }
 }
@@ -201,20 +302,11 @@ export default {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--sw-applet-padding, 1rem);
-  background: var(--sw-space);
 }
 
 .kanban-header {
   flex-shrink: 0;
   margin-bottom: 1rem;
-}
-
-.kanban-header h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--sw-text-primary);
 }
 
 .kanban-hint {
@@ -250,8 +342,8 @@ export default {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
+  background: var(--sw-tab-inactive-bg);
+  border: none;
   border-radius: var(--sw-chrome-radius-inner, 8px);
   overflow: hidden;
 }
@@ -270,72 +362,26 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.65rem 0.85rem;
-  border-bottom: 1px solid var(--sw-border);
-  background: var(--sw-panel-raised);
+  padding: 0.75rem 0.85rem 0.5rem;
 }
 
 .kanban-column-title {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--sw-text-secondary);
 }
 
 .kanban-column-count {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
+  font-weight: 600;
   color: var(--sw-text-muted);
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--sw-tab-active-bg);
 }
 
 .kanban-column-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0.35rem 0;
-}
-
-.tx-month-empty {
-  margin: 0.5rem 0.85rem;
-  font-size: 0.75rem;
-}
-
-.tx-row {
-  cursor: default;
-  align-items: flex-start;
-}
-
-.tx-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.tx-desc {
-  font-size: 0.85rem;
-  color: var(--sw-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tx-amount {
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--sw-danger-soft);
-  flex-shrink: 0;
-}
-
-.tx-amount.credit {
-  color: var(--sw-success);
-}
-
-.tx-meta {
-  font-size: 0.72rem;
-  color: var(--sw-text-muted);
-  text-transform: capitalize;
+  padding: 0.5rem 0.65rem 0.5rem;
 }
 </style>
