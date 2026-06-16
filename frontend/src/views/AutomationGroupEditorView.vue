@@ -275,7 +275,6 @@ export default {
 
 .panel {
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 8px;
   padding: 1.25rem;
 }

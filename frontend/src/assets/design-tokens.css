@@ -16,9 +16,9 @@
 :root {
   /* Space & surfaces */
   --sw-space: #14141f;
-  --sw-panel: #2a2d3a;
-  --sw-panel-raised: #353846;
-  --sw-panel-inset: #1a1d24;
+  --sw-panel: #1e1e2e80;
+  --sw-panel-raised: #f1f1f105;
+  --sw-panel-inset: #00000020;
   --sw-void: #0f1114;
   --sw-border: #3d4252;
   --sw-border-strong: #4a5063;

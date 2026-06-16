@@ -33,7 +33,6 @@ export default {
 <style scoped>
 .chart-panel-shell.panel {
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 12px;
   padding: 1rem 1.25rem;
   box-sizing: border-box;
@@ -71,12 +70,12 @@ export default {
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--sw-text-muted);
   cursor: pointer;
   opacity: 0.55;
+  border: none;
   transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 

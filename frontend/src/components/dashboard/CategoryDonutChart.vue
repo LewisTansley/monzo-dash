@@ -47,6 +47,7 @@ import {
   createChart,
   destroyChart,
   getCanvasContext,
+  isChartContainerSized,
   observeChartResize,
   onChartSelect
 } from '../charts/chartSetup.js'
@@ -198,8 +199,14 @@ export default {
       this.$nextTick(() => this.renderChart())
     },
     observeResize() {
+      if (this._resizeObs) return
       const el = this.$refs.canvasEl?.parentElement
-      this._resizeObs = observeChartResize(el, () => this._chart)
+      this._resizeObs = observeChartResize(el, {
+        getChart: () => this._chart,
+        onLayout: () => {
+          if (!this._unmounted && !this._chart) this.renderChart()
+        }
+      })
     },
     renderChart() {
       if (this._unmounted) return
@@ -215,6 +222,11 @@ export default {
       const onClick = onChartSelect(({ index }) => this.emitCategory(index))
       const cutout = this.isCompact ? '72%' : '68%'
 
+      const container = this.$refs.canvasEl?.parentElement
+      if (!this._chart && !isChartContainerSized(container)) {
+        return
+      }
+
       if (this._chart) {
         this._chart.data.labels = labels
         this._chart.data.datasets[0].data = values
@@ -222,6 +234,7 @@ export default {
         this._chart.options.onClick = onClick
         this._chart.options.cutout = cutout
         this._chart.update('none')
+        this._chart.resize()
         this.syncSelectedIndex()
         return
       }
@@ -271,7 +284,6 @@ export default {
 <style scoped>
 .donut-chart {
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 12px;
   padding: 1rem 1.25rem;
   min-width: 0;

@@ -342,7 +342,7 @@ export default {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--sw-tab-inactive-bg);
+  background: #1e1e2e80;
   border: none;
   border-radius: var(--sw-chrome-radius-inner, 8px);
   overflow: hidden;

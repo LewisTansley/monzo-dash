@@ -36,7 +36,23 @@ export function ensureChartsRegistered() {
   registered = true
 }
 
+export function isChartContainerSized(containerEl) {
+  if (!containerEl) return false
+  const { width, height } = containerEl.getBoundingClientRect()
+  return width > 0 && height > 0
+}
+
+export function destroyChartOnCanvas(canvas) {
+  if (!canvas) return
+  const existing = Chart.getChart(canvas)
+  if (existing) {
+    existing.stop()
+    existing.destroy()
+  }
+}
+
 export function createChart(ctx, config) {
+  destroyChartOnCanvas(ctx?.canvas)
   return markRaw(new Chart(ctx, config))
 }
 
@@ -59,15 +75,22 @@ export function onChartSelect(handler) {
   }
 }
 
-export function observeChartResize(containerEl, getChart) {
+export function observeChartResize(containerEl, getChartOrOpts) {
   if (!containerEl || typeof ResizeObserver === 'undefined') return null
+
+  const opts = typeof getChartOrOpts === 'function'
+    ? { getChart: getChartOrOpts }
+    : getChartOrOpts || {}
+  const { getChart, onLayout } = opts
 
   let frame = null
   const observer = new ResizeObserver(() => {
     if (frame) cancelAnimationFrame(frame)
     frame = requestAnimationFrame(() => {
       frame = null
-      getChart()?.resize()
+      const chart = getChart?.()
+      if (chart) chart.resize()
+      onLayout?.()
     })
   })
   observer.observe(containerEl)

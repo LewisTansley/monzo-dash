@@ -91,7 +91,7 @@
   gap: 0.75rem;
   padding: 0.65rem 0.75rem;
   border-radius: var(--sw-chrome-radius-inner);
-  background: var(--sw-applet-segmented-bg);
+  background: #00000033;
   margin-bottom: 6px;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -99,11 +99,11 @@
 }
 
 .sw-list-row:hover {
-  background: rgba(var(--sw-blue-muted-rgb), 0.15);
+  background: #f1f1f110;
 }
 
 .sw-list-row.active {
-  background: rgba(var(--sw-blue-muted-rgb), 0.28);
+  background: #f1f1f110;
 }
 
 .sw-list-row .sw-list-meta {

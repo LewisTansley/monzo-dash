@@ -872,7 +872,7 @@ export default {
 }
 
 .period-toggle__btn.active {
-  background: var(--sw-panel);
+  background: #f1f1f110;
   color: var(--sw-text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
@@ -909,7 +909,6 @@ export default {
   align-items: center;
   gap: 1rem 1.5rem;
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 12px;
   padding: 0.75rem 1rem;
 }
@@ -944,7 +943,6 @@ export default {
 
 .panel {
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 8px;
   padding: 0.85rem 1rem;
 }

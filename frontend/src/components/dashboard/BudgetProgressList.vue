@@ -262,7 +262,6 @@ export default {
 
 .budget-progress.panel {
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 12px;
   padding: 1rem 1.25rem;
   margin-bottom: 1rem;
@@ -408,8 +407,7 @@ export default {
 
 .budget-progress__row:hover,
 .budget-progress__row.active {
-  border-color: var(--sw-border-strong);
-  background: var(--sw-panel-raised);
+  background: #f1f1f110;
 }
 
 .budget-progress__head {

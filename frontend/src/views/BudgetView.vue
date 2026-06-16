@@ -62,8 +62,8 @@
       <template v-else>
         <section v-if="incomeItems.length" class="panel">
           <h2>Income</h2>
-          <div class="item-table">
-            <div class="item-row item-head income-row">
+          <div class="item-table ledger-table">
+            <div class="item-row item-head">
               <span>Name</span>
               <span>Category</span>
               <span>Frequency</span>
@@ -71,7 +71,7 @@
               <span>Monthly eq.</span>
               <span></span>
             </div>
-            <div v-for="item in incomeItems" :key="item.id" class="item-row income-row">
+            <div v-for="item in incomeItems" :key="item.id" class="item-row">
               <span class="item-name">{{ item.name }}</span>
               <span class="muted">{{ formatCategory(item.category) }}</span>
               <span class="muted">{{ formatFrequency(item.frequency) }}</span>
@@ -89,8 +89,8 @@
 
         <section v-if="expenseItems.length" class="panel">
           <h2>Outgoings</h2>
-          <div class="item-table">
-            <div class="item-row item-head income-row">
+          <div class="item-table ledger-table">
+            <div class="item-row item-head">
               <span>Name</span>
               <span>Category</span>
               <span>Frequency</span>
@@ -98,7 +98,7 @@
               <span>Monthly eq.</span>
               <span></span>
             </div>
-            <div v-for="item in expenseItems" :key="item.id" class="item-row income-row">
+            <div v-for="item in expenseItems" :key="item.id" class="item-row">
               <span class="item-name">{{ item.name }}</span>
               <span class="muted">{{ formatCategory(item.category) }}</span>
               <span class="muted">{{ formatFrequency(item.frequency) }}</span>
@@ -398,7 +398,6 @@ export default {
 
 .stat-card {
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 8px;
   padding: 1rem 1.25rem;
   display: flex;
@@ -453,7 +452,6 @@ export default {
 
 .panel {
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
   border-radius: 8px;
   padding: 1.25rem;
   margin-bottom: 1.25rem;
@@ -476,21 +474,41 @@ export default {
   gap: 0.35rem;
 }
 
-.item-row {
+.ledger-table,
+.category-table {
   display: grid;
-  gap: 0.75rem;
+  column-gap: 0.75rem;
+  row-gap: 0.35rem;
+}
+
+.ledger-table {
+  grid-template-columns:
+    minmax(0, 1.5fr)
+    minmax(0, 1fr)
+    minmax(0, 0.9fr)
+    minmax(0, 0.9fr)
+    minmax(0, 0.9fr)
+    minmax(9rem, auto);
+}
+
+.category-table {
+  grid-template-columns:
+    minmax(0, 1.2fr)
+    repeat(4, minmax(0, 1fr));
+}
+
+.ledger-table .item-row,
+.category-table .item-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+}
+
+.item-row {
   align-items: center;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--sw-border);
   font-size: 0.9rem;
-}
-
-.income-row {
-  grid-template-columns: 1.5fr 1fr 0.9fr 0.9fr 0.9fr auto;
-}
-
-.category-table .item-row {
-  grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr;
 }
 
 .item-row:last-child {
@@ -571,8 +589,17 @@ export default {
     grid-template-columns: 1fr;
   }
 
-  .item-row {
+  .ledger-table,
+  .category-table {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ledger-table .item-row,
+  .category-table .item-row {
+    display: grid;
     grid-template-columns: 1fr;
+    grid-column: auto;
     gap: 0.25rem;
   }
 

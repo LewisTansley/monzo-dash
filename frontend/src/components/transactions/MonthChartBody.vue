@@ -22,8 +22,7 @@
     <div
       v-if="hasDailyData"
       class="month-chart-body__sparkline"
-      :class="{ 'month-chart-body__sparkline--embedded': embedded }"
-      @click.self="embedded ? toggleSparkline() : undefined">
+      :class="{ 'month-chart-body__sparkline--embedded': embedded }">
       <span v-if="!expanded && !embedded" class="sw-label month-chart-body__sparkline-label">Daily flow</span>
       <div
         class="month-chart-body__canvas month-chart-body__canvas--line"
@@ -36,13 +35,13 @@
       <button
         type="button"
         class="month-chart-body__toggle"
-        :class="{ active: sparklineExpanded }"
-        :aria-expanded="sparklineExpanded"
-        aria-label="Expand daily flow"
-        @click="toggleSparkline">
+        :class="{ active: showCategories }"
+        :aria-expanded="showCategories"
+        aria-label="Show categories"
+        @click="toggleCategories">
         <svg
           class="month-chart-body__chevron"
-          :class="{ 'month-chart-body__chevron--expanded': sparklineExpanded }"
+          :class="{ 'month-chart-body__chevron--expanded': showCategories }"
           width="12"
           height="12"
           viewBox="0 0 12 12"
@@ -196,8 +195,8 @@ export default {
   },
   methods: {
     formatMoney,
-    toggleSparkline() {
-      this.sparklineExpanded = !this.sparklineExpanded
+    toggleCategories() {
+      this.showCategories = !this.showCategories
     },
     scheduleRender() {
       this.$nextTick(() => {
@@ -490,9 +489,7 @@ export default {
 
 .month-chart-body__sparkline--embedded {
   border-radius: var(--sw-chrome-radius-inner);
-  background: var(--sw-tab-active-bg);
   padding: 0.35rem 0.5rem;
-  cursor: pointer;
 }
 
 .month-chart-body__controls {

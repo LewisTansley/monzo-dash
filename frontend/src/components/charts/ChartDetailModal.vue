@@ -72,7 +72,6 @@ export default {
   gap: 0.75rem;
   padding: 0.65rem 0.85rem;
   background: var(--sw-panel-inset);
-  border: 1px solid var(--sw-border);
   border-radius: 8px;
 }
 

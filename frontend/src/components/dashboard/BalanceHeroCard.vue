@@ -32,7 +32,6 @@ export default {
   padding: 1rem 1.1rem;
   min-height: 0;
   background: var(--sw-panel);
-  border: 1px solid var(--sw-border);
 }
 
 .balance-hero__label {

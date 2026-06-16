@@ -40,7 +40,6 @@ export default {
   padding: 4px;
   border-radius: 999px;
   background: var(--sw-applet-segmented-bg);
-  border: 1px solid var(--sw-border);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 

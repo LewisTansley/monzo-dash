@@ -89,7 +89,6 @@ export default {
 
 .modal-container {
   background-color: var(--sw-app-canvas);
-  border: 1px solid var(--sw-border);
   border-radius: 12px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
   max-width: 600px;

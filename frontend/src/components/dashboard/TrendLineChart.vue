@@ -13,6 +13,7 @@ import {
   createChart,
   destroyChart,
   getCanvasContext,
+  isChartContainerSized,
   observeChartResize,
   onChartSelect
 } from '../charts/chartSetup.js'
@@ -70,8 +71,14 @@ export default {
       this.$nextTick(() => this.renderChart())
     },
     observeResize() {
+      if (this._resizeObs) return
       const el = this.$refs.canvasEl?.parentElement
-      this._resizeObs = observeChartResize(el, () => this._chart)
+      this._resizeObs = observeChartResize(el, {
+        getChart: () => this._chart,
+        onLayout: () => {
+          if (!this._unmounted && !this._chart) this.renderChart()
+        }
+      })
     },
     emitDate(index) {
       const date = this._dateKeys[index]
@@ -98,12 +105,23 @@ export default {
       const spend = series.map((d) => (d.spend || 0) / 100)
       const onClick = onChartSelect(({ index }) => this.emitDate(index))
 
+      if (!series.length) {
+        this._chart = destroyChart(this._chart)
+        return
+      }
+
+      const container = this.$refs.canvasEl?.parentElement
+      if (!this._chart && !isChartContainerSized(container)) {
+        return
+      }
+
       if (this._chart) {
         this._chart.data.labels = labels
         this._chart.data.datasets[0].data = income
         this._chart.data.datasets[1].data = spend
         this._chart.options.onClick = onClick
         this._chart.update('none')
+        this._chart.resize()
         return
       }
 
