@@ -9,8 +9,10 @@ export default api
 
 export const vaultApi = {
   status: () => api.get('/vault/status'),
-  init: (passphrase) => api.post('/vault/init', { passphrase }),
-  unlock: (passphrase) => api.post('/vault/unlock', { passphrase }),
+  init: (passphrase, options = {}) =>
+    api.post('/vault/init', { passphrase, ...options }),
+  unlock: (passphrase, options = {}) =>
+    api.post('/vault/unlock', { passphrase, ...options }),
   lock: () => api.post('/vault/lock'),
   getMonzoCredentials: () => api.get('/vault/monzo-credentials'),
   getMonzoSetup: () => api.get('/vault/monzo-setup'),
@@ -49,7 +51,8 @@ export const automationsApi = {
   update: (id, data) => api.put(`/automations/${id}`, data),
   delete: (id) => api.delete(`/automations/${id}`),
   dryRun: (id) => api.post(`/automations/${id}/dry-run`),
-  run: (id) => api.post(`/automations/${id}/run`)
+  run: (id) => api.post(`/automations/${id}/run`),
+  autoCheck: () => api.post('/automations/auto-check')
 }
 
 export const automationGroupsApi = {
@@ -65,6 +68,11 @@ export const automationGroupsApi = {
 export const budgetsApi = {
   get: () => api.get('/budgets'),
   set: (budgets) => api.put('/budgets', { budgets })
+}
+
+export const settingsApi = {
+  get: () => api.get('/settings'),
+  update: (settings) => api.put('/settings', { settings })
 }
 
 export const budgetApi = {

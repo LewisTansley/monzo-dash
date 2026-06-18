@@ -25,6 +25,11 @@
       </section>
 
       <section>
+        <h2>Automatic runs</h2>
+        <AutomationAutoTriggerPanel :auto-trigger="form.autoTrigger" />
+      </section>
+
+      <section>
         <h2>Member automations</h2>
         <p v-if="!automations.length" class="muted">
           Create at least one automation before building a group.
@@ -101,22 +106,29 @@
 
 <script>
 import { AppletShell, BaseButton } from '../components/common'
+import AutomationAutoTriggerPanel from '../components/automations/AutomationAutoTriggerPanel.vue'
 import { automationsApi, automationGroupsApi, monzoApi } from '../services/api.js'
 import { formatMoney } from '../utils/money.js'
 import { describeAutomationOneLine } from '../utils/automationDisplay.js'
+import {
+  defaultAutoTriggerForm,
+  autoTriggerToForm,
+  autoTriggerToPayload
+} from '../utils/automationTriggerForm.js'
 
 function defaultForm() {
   return {
     name: '',
     enabled: true,
     showOnDashboard: true,
-    automationIds: []
+    automationIds: [],
+    autoTrigger: defaultAutoTriggerForm()
   }
 }
 
 export default {
   name: 'AutomationGroupEditorView',
-  components: { AppletShell, BaseButton },
+  components: { AppletShell, BaseButton, AutomationAutoTriggerPanel },
   data() {
     return {
       form: defaultForm(),
@@ -202,7 +214,8 @@ export default {
         name: this.form.name,
         enabled: this.form.enabled,
         showOnDashboard: this.form.showOnDashboard,
-        automationIds: [...this.form.automationIds]
+        automationIds: [...this.form.automationIds],
+        autoTrigger: autoTriggerToPayload(this.form.autoTrigger)
       }
     },
     async loadGroup() {
@@ -212,7 +225,8 @@ export default {
         name: g.name,
         enabled: g.enabled,
         showOnDashboard: g.showOnDashboard,
-        automationIds: [...(g.automationIds || [])]
+        automationIds: [...(g.automationIds || [])],
+        autoTrigger: autoTriggerToForm(g.autoTrigger)
       }
     },
     async save() {

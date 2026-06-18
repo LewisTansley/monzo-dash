@@ -4,6 +4,12 @@
       <div class="applet-center applet-center--full-bleed">
       <div class="kanban-shell">
         <header class="kanban-header">
+          <TransactionFilterBar
+            v-model="filters"
+            :options="filterOptions"
+            :match-summary="matchSummary"
+            :disabled="loading && !columns.length"
+            @clear="clearFilters" />
           <p class="sw-muted kanban-hint">Scroll right for older months · scroll inside a column for that month&apos;s transactions</p>
         </header>
 
@@ -16,12 +22,12 @@
           <p v-if="loading && !columns.length" class="sw-empty kanban-loading">Loading...</p>
 
           <div
-            v-for="column in columns"
+            v-for="column in filteredColumns"
             :key="column.key"
             class="kanban-column">
             <div class="kanban-column-header">
               <span class="sw-label kanban-column-title">{{ column.label }}</span>
-              <span class="kanban-column-count">{{ column.transactions.length }}</span>
+              <span class="kanban-column-count">{{ columnCountLabel(column) }}</span>
             </div>
             <MonthColumnChart
               embedded
@@ -33,12 +39,14 @@
             <div class="kanban-column-body">
               <TransactionList
                 :transactions="column.transactions"
-                empty-message="No transactions" />
+                :empty-message="listEmptyMessage"
+                selectable
+                @select="openTransactionDrilldown" />
             </div>
           </div>
 
-          <div v-if="loadingMore" class="kanban-column kanban-column--status">
-            <p class="sw-empty">Loading more...</p>
+          <div v-if="loadingMore || filterSearching" class="kanban-column kanban-column--status">
+            <p class="sw-empty">{{ filterSearching ? 'Searching older months…' : 'Loading more...' }}</p>
           </div>
           <div v-else-if="endMessage" class="kanban-column kanban-column--status">
             <p class="sw-empty sw-muted">{{ endMessage }}</p>
@@ -58,7 +66,8 @@
       :show-transactions="!!columnChartDetail?.selection"
       :empty-message="columnEmptyMessage"
       @close="closeColumnChart"
-      @clear-selection="clearColumnSelection">
+      @clear-selection="clearColumnSelection"
+      @select-transaction="openTransactionDrilldown">
       <template #chart>
         <MonthColumnChart
           v-if="columnChartDetail"
@@ -70,6 +79,17 @@
           @select-date="(payload) => onColumnDateSelect(columnChartDetail, payload)" />
       </template>
     </ChartDetailModal>
+
+    <RelatedTransactionsModal
+      :is-open="!!txDrilldownAnchor"
+      :title="txDrilldownTitle"
+      :loading="txDrilldownLoading"
+      :anchor-tx="txDrilldownAnchor"
+      :transactions="txDrilldownTransactions"
+      :selection-label="txDrilldownLabel"
+      :selection-meta="txDrilldownMeta"
+      @close="closeTransactionDrilldown"
+      @select="openTransactionDrilldown" />
   </div>
 </template>
 
@@ -77,19 +97,43 @@
 import { AppletShell } from '../components/common'
 import MonthColumnChart from '../components/transactions/MonthColumnChart.vue'
 import TransactionList from '../components/transactions/TransactionList.vue'
+import TransactionFilterBar from '../components/transactions/TransactionFilterBar.vue'
 import ChartDetailModal from '../components/charts/ChartDetailModal.vue'
+import RelatedTransactionsModal from '../components/transactions/RelatedTransactionsModal.vue'
 import { monzoApi } from '../services/api.js'
 import { formatMoney } from '../utils/money.js'
 import { monthFeedToColumn } from '../utils/transactions.js'
-import { spendableTransactions } from '../utils/transactionAnalytics.js'
-import { drilldownTransactions, selectionSummary } from '../composables/useTransactionDrilldown.js'
+import {
+  drilldownTransactions,
+  drilldownRelatedTransactions,
+  drilldownTitle,
+  ensureTransactionsForDrilldown,
+  resolveTransactionDrilldown,
+  selectionSummary
+} from '../composables/useTransactionDrilldown.js'
+import {
+  applyKanbanFilters,
+  collectFilterOptions,
+  DEFAULT_KANBAN_FILTERS,
+  isKanbanFiltersActive,
+  summarizeKanbanMatches
+} from '../utils/transactionFilters.js'
 
 const HORIZONTAL_LOAD_THRESHOLD = 200
 const MAX_PREFETCH_ATTEMPTS = 12
+const MAX_FILTER_FETCH_MONTHS = 60
+const FILTER_FETCH_DEBOUNCE_MS = 300
 
 export default {
   name: 'TransactionsKanbanView',
-  components: { AppletShell, MonthColumnChart, TransactionList, ChartDetailModal },
+  components: {
+    AppletShell,
+    MonthColumnChart,
+    TransactionList,
+    TransactionFilterBar,
+    ChartDetailModal,
+    RelatedTransactionsModal
+  },
   data() {
     return {
       columns: [],
@@ -100,10 +144,42 @@ export default {
       endMessage: '',
       loadError: '',
       columnChartDetail: null,
-      columnDrilldownTransactions: []
+      columnDrilldownTransactions: [],
+      txDrilldownAnchor: null,
+      txDrilldownTransactions: [],
+      txDrilldownLoading: false,
+      pots: [],
+      filters: { ...DEFAULT_KANBAN_FILTERS },
+      filterSearching: false,
+      filterFetchGeneration: 0,
+      filterFetchTimer: null
     }
   },
   computed: {
+    isFiltersActive() {
+      return isKanbanFiltersActive(this.filters)
+    },
+    filteredColumns() {
+      return this.columns.map((col) => ({
+        ...col,
+        transactions: applyKanbanFilters(col.transactions, this.filters),
+        totalCount: col.transactions.length
+      }))
+    },
+    filterOptions() {
+      return collectFilterOptions(this.columns)
+    },
+    matchSummary() {
+      const { count, monthCount } = summarizeKanbanMatches(this.columns, this.filters)
+      return {
+        count,
+        monthCount: this.filterSearching ? this.columns.length : monthCount,
+        searching: this.filterSearching
+      }
+    },
+    listEmptyMessage() {
+      return this.isFiltersActive ? 'No matching transactions' : 'No transactions'
+    },
     columnChartTitle() {
       if (!this.columnChartDetail) return ''
       return `${this.columnChartDetail.label} overview`
@@ -121,17 +197,114 @@ export default {
     },
     columnEmptyMessage() {
       const sel = this.columnChartDetail?.selection
-      if (!sel) return 'No transactions'
+      if (!sel) return this.listEmptyMessage
       if (sel.date) return `No transactions on ${sel.label}`
       if (sel.label) return `No ${sel.label} transactions this month`
-      return 'No transactions'
+      return this.listEmptyMessage
+    },
+    txDrilldownRule() {
+      return resolveTransactionDrilldown(this.txDrilldownAnchor, this.pots)
+    },
+    txDrilldownTitle() {
+      return drilldownTitle(this.txDrilldownRule)
+    },
+    txDrilldownLabel() {
+      return this.txDrilldownRule?.label || ''
+    },
+    txDrilldownMeta() {
+      if (!this.txDrilldownTransactions.length) return ''
+      const summary = selectionSummary(this.txDrilldownTransactions)
+      if (this.txDrilldownRule?.type === 'pot') {
+        const parts = [`${summary.count} transfer${summary.count === 1 ? '' : 's'}`]
+        if (summary.spend > 0) parts.push(`deposits ${formatMoney(summary.spend)}`)
+        if (summary.income > 0) parts.push(`withdrawals ${formatMoney(summary.income)}`)
+        return parts.join(' · ')
+      }
+      const parts = [`${summary.count} transaction${summary.count === 1 ? '' : 's'}`]
+      if (summary.spend > 0) parts.push(`spend ${formatMoney(summary.spend)}`)
+      if (summary.income > 0) parts.push(`income ${formatMoney(summary.income)}`)
+      return parts.join(' · ')
+    }
+  },
+  watch: {
+    filters: {
+      deep: true,
+      handler() {
+        this.scheduleFilterFetch()
+        this.syncOpenColumnChart()
+      }
     }
   },
   mounted() {
     this.loadInitial()
   },
+  beforeUnmount() {
+    this.filterFetchGeneration += 1
+    if (this.filterFetchTimer) {
+      clearTimeout(this.filterFetchTimer)
+      this.filterFetchTimer = null
+    }
+  },
   methods: {
     formatMoney,
+    columnCountLabel(column) {
+      if (!this.isFiltersActive || column.transactions.length === column.totalCount) {
+        return String(column.transactions.length)
+      }
+      return `${column.transactions.length} / ${column.totalCount}`
+    },
+    clearFilters() {
+      this.filterFetchGeneration += 1
+      this.filterSearching = false
+      this.filters = { ...DEFAULT_KANBAN_FILTERS }
+    },
+    scheduleFilterFetch() {
+      if (this.filterFetchTimer) {
+        clearTimeout(this.filterFetchTimer)
+      }
+      this.filterFetchTimer = setTimeout(() => {
+        this.filterFetchTimer = null
+        this.ensureCoverageForFilters()
+      }, FILTER_FETCH_DEBOUNCE_MS)
+    },
+    async ensureCoverageForFilters() {
+      if (!isKanbanFiltersActive(this.filters)) {
+        this.filterSearching = false
+        return
+      }
+
+      const generation = ++this.filterFetchGeneration
+      this.filterSearching = true
+
+      try {
+        while (
+          generation === this.filterFetchGeneration &&
+          this.hasMore &&
+          this.nextMonth &&
+          this.columns.length < MAX_FILTER_FETCH_MONTHS
+        ) {
+          if (this.loadingMore) {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+            continue
+          }
+          await this.loadMoreMonths()
+        }
+      } finally {
+        if (generation === this.filterFetchGeneration) {
+          this.filterSearching = false
+        }
+      }
+    },
+    syncOpenColumnChart() {
+      if (!this.columnChartDetail) return
+      const col = this.filteredColumns.find((c) => c.key === this.columnChartDetail.monthKey)
+      if (!col) return
+      this.columnChartDetail = {
+        ...this.columnChartDetail,
+        transactions: col.transactions
+      }
+      this.refreshColumnDrilldown()
+    },
     applyMonthFeed(data, { append = false } = {}) {
       const column = monthFeedToColumn(data)
 
@@ -217,7 +390,9 @@ export default {
         this.endMessage = e.response?.data?.error || e.message
       } finally {
         this.loadingMore = false
-        await this.prefetchMonthsIfNeeded()
+        if (!isKanbanFiltersActive(this.filters)) {
+          await this.prefetchMonthsIfNeeded()
+        }
       }
     },
     onBoardScroll() {
@@ -247,9 +422,9 @@ export default {
       this.columnDrilldownTransactions = []
     },
     onColumnCategorySelect(column, payload) {
-      if (!this.columnChartDetail || this.columnChartDetail.monthKey !== column.key) {
+      if (!this.columnChartDetail || this.columnChartDetail.monthKey !== column.monthKey) {
         this.columnChartDetail = {
-          monthKey: column.key,
+          monthKey: column.monthKey || column.key,
           label: column.label,
           transactions: column.transactions,
           selection: payload
@@ -260,9 +435,9 @@ export default {
       this.refreshColumnDrilldown()
     },
     onColumnDateSelect(column, payload) {
-      if (!this.columnChartDetail || this.columnChartDetail.monthKey !== column.key) {
+      if (!this.columnChartDetail || this.columnChartDetail.monthKey !== column.monthKey) {
         this.columnChartDetail = {
-          monthKey: column.key,
+          monthKey: column.monthKey || column.key,
           label: column.label,
           transactions: column.transactions,
           selection: payload
@@ -278,12 +453,86 @@ export default {
         this.columnDrilldownTransactions = []
         return
       }
-      const base = spendableTransactions(this.columnChartDetail.transactions)
       this.columnDrilldownTransactions = drilldownTransactions({
-        transactions: base,
+        transactions: this.columnChartDetail.transactions,
         category: sel.category,
-        date: sel.date
+        date: sel.date,
+        seriesKey: sel.seriesKey
       })
+    },
+    async ensurePotsLoaded() {
+      if (this.pots.length) return
+      try {
+        const { data } = await monzoApi.pots()
+        this.pots = data.pots || []
+      } catch {
+        this.pots = []
+      }
+    },
+    openTransactionDrilldown(tx) {
+      if (!tx) return
+      const nextRule = resolveTransactionDrilldown(tx, this.pots)
+      const currentRule = resolveTransactionDrilldown(this.txDrilldownAnchor, this.pots)
+      const sameGroup =
+        currentRule &&
+        nextRule &&
+        currentRule.type === nextRule.type &&
+        (currentRule.type === 'pot'
+          ? currentRule.pot?.id === nextRule.pot?.id
+          : currentRule.description === nextRule.description)
+
+      this.txDrilldownAnchor = tx
+      if (sameGroup && this.txDrilldownTransactions.length) return
+      this.loadTransactionDrilldown()
+    },
+    closeTransactionDrilldown() {
+      this.txDrilldownAnchor = null
+      this.txDrilldownTransactions = []
+      this.txDrilldownLoading = false
+    },
+    async loadTransactionDrilldown() {
+      const anchor = this.txDrilldownAnchor
+      if (!anchor) {
+        this.txDrilldownTransactions = []
+        return
+      }
+
+      this.txDrilldownLoading = true
+      try {
+        await this.ensurePotsLoaded()
+        const pagination = {
+          hasMore: this.hasMore,
+          nextMonth: this.nextMonth
+        }
+        const { columns, transactions } = await ensureTransactionsForDrilldown({
+          loadedMonths: this.columns,
+          pagination,
+          onColumnsUpdate: (cols) => {
+            this.columns = cols
+          },
+          fetchMonth: async (monthKey) => {
+            const { data } = await monzoApi.transactionMonth(monthKey)
+            this.applyMonthFeed(data, { append: true })
+            if (!data.hasMore && !data.verificationRequired) {
+              this.endMessage = this.endMessage || 'No more transactions.'
+            }
+            return data
+          }
+        })
+        this.columns = columns
+        this.hasMore = pagination.hasMore
+        this.nextMonth = pagination.nextMonth
+        this.txDrilldownTransactions = drilldownRelatedTransactions({
+          anchorTx: anchor,
+          transactions,
+          pots: this.pots
+        })
+      } catch (e) {
+        this.txDrilldownTransactions = []
+        this.loadError = e.response?.data?.error || e.message
+      } finally {
+        this.txDrilldownLoading = false
+      }
     }
   }
 }
@@ -306,6 +555,9 @@ export default {
 
 .kanban-header {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   margin-bottom: 1rem;
 }
 

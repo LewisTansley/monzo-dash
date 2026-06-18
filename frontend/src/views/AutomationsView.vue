@@ -91,6 +91,7 @@
             <div v-if="editDescription" class="automation-description edit-preview">
               <p><span class="sw-label">When</span> {{ editDescription.when }}</p>
               <p><span class="sw-label">Then</span> {{ editDescription.then }}</p>
+              <p v-if="editDescription.auto"><span class="sw-label">Auto</span> {{ editDescription.auto }}</p>
             </div>
 
             <p v-if="editDryRunResult" class="dry-result">{{ editDryRunMessage }}</p>
@@ -107,9 +108,15 @@
             <div v-if="selectedAutomationDescription" class="automation-description">
               <p><span class="sw-label">When</span> {{ selectedAutomationDescription.when }}</p>
               <p><span class="sw-label">Then</span> {{ selectedAutomationDescription.then }}</p>
+              <p v-if="selectedAutomationDescription.auto">
+                <span class="sw-label">Auto</span> {{ selectedAutomationDescription.auto }}
+              </p>
             </div>
             <div v-else-if="selectedGroupDescription" class="automation-description">
               <p class="sw-secondary group-intro">{{ selectedGroupDescription.summary }}</p>
+              <p v-if="selectedGroupDescription.auto" class="sw-secondary group-intro">
+                <span class="sw-label">Auto</span> {{ selectedGroupDescription.auto }}
+              </p>
               <ol v-if="selectedGroupDescription.steps.length" class="group-steps">
                 <li v-for="(step, i) in selectedGroupDescription.steps" :key="i">
                   <span class="step-name">{{ step.name }}</span>
@@ -254,7 +261,8 @@ export default {
       editSections: [
         { id: 'basics', label: 'Basics' },
         { id: 'conditions', label: 'Conditions' },
-        { id: 'action', label: 'Action' }
+        { id: 'action', label: 'Action' },
+        { id: 'autotrigger', label: 'Auto-run' }
       ],
       pots: [],
       accountId: '',

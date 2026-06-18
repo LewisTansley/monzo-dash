@@ -7,7 +7,9 @@ import {
   lockVault,
   getVaultStatus,
   updateVault,
-  getVaultData
+  getVaultData,
+  syncHeadlessSession,
+  migrateVaultSettings
 } from '../services/vault.js'
 import { validateMonzoClientId } from '../services/monzoClient.js'
 
@@ -28,7 +30,7 @@ router.get('/status', (_req, res) => {
 
 router.post('/init', (req, res) => {
   try {
-    const { passphrase } = req.body
+    const { passphrase, allowHeadlessRuns } = req.body
     if (!passphrase || passphrase.length < 8) {
       return res.status(400).json({ error: 'Passphrase must be at least 8 characters' })
     }
@@ -36,7 +38,16 @@ router.post('/init', (req, res) => {
       return res.status(400).json({ error: 'Vault already exists' })
     }
     initVault(passphrase)
-    res.json({ ok: true })
+    if (allowHeadlessRuns) {
+      updateVault((v) => {
+        v.settings = migrateVaultSettings({
+          ...v.settings,
+          allowHeadlessRuns: true
+        })
+      })
+      syncHeadlessSession()
+    }
+    res.json({ ok: true, ...getVaultStatus() })
   } catch (err) {
     res.status(400).json({ error: err.message })
   }
@@ -44,11 +55,20 @@ router.post('/init', (req, res) => {
 
 router.post('/unlock', (req, res) => {
   try {
-    const { passphrase } = req.body
+    const { passphrase, allowHeadlessRuns } = req.body
     if (!passphrase) {
       return res.status(400).json({ error: 'Passphrase required' })
     }
     unlockVault(passphrase)
+    if (allowHeadlessRuns !== undefined) {
+      updateVault((v) => {
+        v.settings = migrateVaultSettings({
+          ...v.settings,
+          allowHeadlessRuns: Boolean(allowHeadlessRuns)
+        })
+      })
+    }
+    syncHeadlessSession()
     res.json({ ok: true, ...getVaultStatus() })
   } catch (err) {
     res.status(401).json({ error: 'Invalid passphrase' })

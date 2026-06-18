@@ -99,11 +99,63 @@ export function formatAction(automation, context) {
   return `Withdraw ${amountStr} from ${pot} to ${ctx.accountLabel}`
 }
 
+const MODE_LABELS = {
+  conditions: 'when balance conditions are met',
+  schedule: 'on schedule',
+  schedule_and_conditions: 'on schedule when conditions are met'
+}
+
+const SCHEDULE_TYPE_LABELS = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+  interval_days: 'Every N days'
+}
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+const FREQUENCY_LABELS = {
+  once_per_window: 'once per schedule window',
+  once_per_day: 'once per day'
+}
+
+export function formatAutoTrigger(autoTrigger) {
+  if (!autoTrigger?.enabled) return ''
+
+  const mode = MODE_LABELS[autoTrigger.mode] || autoTrigger.mode
+  const frequency = FREQUENCY_LABELS[autoTrigger.frequency] || autoTrigger.frequency
+  const parts = [`Auto-run ${mode}`, `at most ${frequency}`]
+
+  if (autoTrigger.mode === 'schedule' || autoTrigger.mode === 'schedule_and_conditions') {
+    const schedule = autoTrigger.schedule || {}
+    const typeLabel = SCHEDULE_TYPE_LABELS[schedule.type] || schedule.type
+    parts.push(`${typeLabel} at ${schedule.time || '09:00'}`)
+
+    if (schedule.type === 'weekly' && schedule.daysOfWeek?.length) {
+      const days = schedule.daysOfWeek.map((d) => DAY_LABELS[d] || d).join(', ')
+      parts.push(`on ${days}`)
+    }
+    if (schedule.type === 'monthly') {
+      parts.push(`on day ${schedule.dayOfMonth || 1}`)
+    }
+    if (schedule.type === 'interval_days') {
+      parts.push(`every ${schedule.intervalDays || 1} days from ${schedule.anchorDate}`)
+    }
+  }
+
+  return parts.join(' · ')
+}
+
 export function describeAutomation(automation, context) {
-  return {
+  const base = {
     when: formatConditions(automation, context),
     then: formatAction(automation, context)
   }
+  const auto = formatAutoTrigger(automation.autoTrigger)
+  if (auto) {
+    return { ...base, auto }
+  }
+  return base
 }
 
 export function describeAutomationOneLine(automation, context) {
@@ -141,5 +193,6 @@ export function describeGroup(group, automations, context) {
       ? describeAutomationOneLine(firstAuto, context)
       : `${ids.length} automations in sequence`
 
-  return { summary, steps }
+  const auto = formatAutoTrigger(group.autoTrigger)
+  return { summary, steps, auto }
 }

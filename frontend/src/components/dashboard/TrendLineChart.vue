@@ -33,7 +33,11 @@ export default {
     period: { type: String, default: 'mtd', validator: (v) => ['mtd', 'ytd'].includes(v) },
     expanded: { type: Boolean, default: false },
     hideTitle: { type: Boolean, default: false },
-    selectedDate: { type: String, default: null }
+    selectedDate: { type: String, default: null },
+    seriesLabels: {
+      type: Object,
+      default: () => ({ income: 'Income', spend: 'Spend' })
+    }
   },
   emits: ['select-date'],
   computed: {
@@ -54,6 +58,12 @@ export default {
     },
     expanded() {
       this.scheduleRender()
+    },
+    seriesLabels: {
+      deep: true,
+      handler() {
+        this.scheduleRender()
+      }
     }
   },
   mounted() {
@@ -117,7 +127,9 @@ export default {
 
       if (this._chart) {
         this._chart.data.labels = labels
+        this._chart.data.datasets[0].label = this.seriesLabels.income
         this._chart.data.datasets[0].data = income
+        this._chart.data.datasets[1].label = this.seriesLabels.spend
         this._chart.data.datasets[1].data = spend
         this._chart.options.onClick = onClick
         this._chart.update('none')
@@ -133,8 +145,8 @@ export default {
         data: {
           labels,
           datasets: [
-            lineDataset('Income', income, chartColors.income, { fill: false }),
-            lineDataset('Spend', spend, chartColors.spend, { fill: false })
+            lineDataset(this.seriesLabels.income, income, chartColors.income, { fill: false }),
+            lineDataset(this.seriesLabels.spend, spend, chartColors.spend, { fill: false })
           ]
         },
         options: {

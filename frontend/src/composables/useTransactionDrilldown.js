@@ -1,9 +1,13 @@
 import { spendableTransactions } from '../utils/transactionAnalytics.js'
+import { matchesPot } from '../utils/potTransfers.js'
 import {
   flattenMonthColumns,
   monthKeysForPeriod,
+  normalizeDescription,
   periodStartDate
 } from '../utils/transactionFilters.js'
+
+const MAX_DRILLDOWN_MONTHS = 60
 
 function monthKeyFromFeed(data) {
   return data?.month || null
@@ -41,7 +45,8 @@ function mergeMonthColumn(columns, feed) {
 export async function ensureTransactionsForPeriod({
   period,
   loadedMonths = [],
-  fetchMonth
+  fetchMonth,
+  includePotTransfers = false
 }) {
   let columns = [...loadedMonths]
   const requiredKeys = monthKeysForPeriod(period)
@@ -69,11 +74,10 @@ export async function ensureTransactionsForPeriod({
   }
 
   const flat = flattenMonthColumns(columns)
+  const scoped = includePotTransfers ? flat : spendableTransactions(flat)
   return {
     columns,
-    transactions: spendableTransactions(flat).filter(
-      (tx) => tx.created.slice(0, 10) >= startDate
-    )
+    transactions: scoped.filter((tx) => tx.created.slice(0, 10) >= startDate)
   }
 }
 
@@ -109,6 +113,29 @@ export function drilldownTransactions({
   )
 }
 
+export function drilldownPotTransactions({
+  transactions,
+  pot,
+  date,
+  seriesKey
+}) {
+  let result = (transactions || []).filter((tx) => matchesPot(tx, pot))
+
+  if (date) {
+    result = result.filter((tx) => tx.created.slice(0, 10) === date)
+  }
+
+  if (seriesKey === 'deposit' || seriesKey === 'spend') {
+    result = result.filter((tx) => tx.amount < 0)
+  } else if (seriesKey === 'withdraw' || seriesKey === 'income') {
+    result = result.filter((tx) => tx.amount > 0)
+  }
+
+  return result.sort(
+    (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime()
+  )
+}
+
 export function selectionSummary(transactions) {
   const list = transactions || []
   let spend = 0
@@ -122,5 +149,89 @@ export function selectionSummary(transactions) {
     spend,
     income,
     net: income - spend
+  }
+}
+
+function resolvePotForTransfer(anchorTx, pots) {
+  if (!anchorTx?.isPotTransfer) return null
+  if (anchorTx.potTransferPotId) {
+    const match = (pots || []).find((p) => p.id === anchorTx.potTransferPotId)
+    if (match) return match
+    return {
+      id: anchorTx.potTransferPotId,
+      name: (anchorTx.description || '').trim() || 'Pot'
+    }
+  }
+  return (pots || []).find((p) => matchesPot(anchorTx, p)) || null
+}
+
+export function resolveTransactionDrilldown(anchorTx, pots = []) {
+  if (!anchorTx) return null
+
+  if (anchorTx.isPotTransfer) {
+    const pot = resolvePotForTransfer(anchorTx, pots)
+    const label = pot?.name || (anchorTx.description || '').trim() || 'Pot'
+    return {
+      type: 'pot',
+      label,
+      pot,
+      match(tx) {
+        if (!pot) return false
+        return matchesPot(tx, pot)
+      }
+    }
+  }
+
+  const description = normalizeDescription(anchorTx.description)
+  return {
+    type: 'description',
+    label: description || 'Transaction',
+    description,
+    match(tx) {
+      return normalizeDescription(tx.description) === description
+    }
+  }
+}
+
+export function drilldownRelatedTransactions({ anchorTx, transactions, pots = [] }) {
+  const rule = resolveTransactionDrilldown(anchorTx, pots)
+  if (!rule) return []
+
+  return (transactions || [])
+    .filter((tx) => rule.match(tx))
+    .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+}
+
+export function drilldownTitle(drilldown) {
+  if (!drilldown) return 'Transactions'
+  return drilldown.type === 'pot' ? 'Pot transfers' : 'Matching transactions'
+}
+
+export async function ensureTransactionsForDrilldown({
+  loadedMonths = [],
+  fetchMonth,
+  pagination,
+  onColumnsUpdate,
+  maxMonths = MAX_DRILLDOWN_MONTHS
+}) {
+  let columns = [...loadedMonths]
+
+  while (pagination?.hasMore && pagination?.nextMonth && columns.length < maxMonths) {
+    const feed = await fetchMonth(pagination.nextMonth)
+    columns = mergeMonthColumn(columns, feed)
+    if (onColumnsUpdate) onColumnsUpdate(columns)
+
+    pagination.hasMore = Boolean(feed.hasMore)
+    pagination.nextMonth = feed.nextMonth || null
+
+    if (feed.verificationRequired) {
+      pagination.hasMore = false
+      pagination.nextMonth = null
+    }
+  }
+
+  return {
+    columns,
+    transactions: flattenMonthColumns(columns)
   }
 }

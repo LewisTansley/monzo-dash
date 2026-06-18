@@ -22,12 +22,35 @@
                   Passphrase
                   <input v-model="passphrase" type="password" autocomplete="new-password" required minlength="8" />
                 </label>
+                <label class="checkbox">
+                  <input v-model="allowHeadlessRuns" type="checkbox" />
+                  Allow automatic runs without the dashboard open
+                </label>
+                <p class="sw-muted secret-hint">
+                  Uses your passphrase for this server session. When enabled, it is stored
+                  encrypted in <code>.vault/</code> so automations can run after a container restart.
+                </p>
                 <BaseButton type="submit" :disabled="vault.loading">
                   {{ vault.exists ? 'Unlock' : 'Create vault' }}
                 </BaseButton>
               </form>
             </template>
-            <p v-else class="sw-secondary">Vault is unlocked.</p>
+            <template v-else>
+              <p class="sw-secondary">Vault is unlocked.</p>
+              <label class="checkbox">
+                <input
+                  v-model="allowHeadlessRuns"
+                  type="checkbox"
+                  :disabled="settingsSaving"
+                  @change="saveSettings" />
+                Allow automatic runs without the dashboard open
+              </label>
+              <p class="sw-muted secret-hint">
+                Keeps your unlocked session available for the automation scheduler.
+                <span v-if="headlessSessionStored">Encrypted session saved for container restarts.</span>
+                <span v-else>Unlock again with this option enabled to persist across restarts.</span>
+              </p>
+            </template>
           </section>
 
           <template v-if="vault.unlocked">
@@ -101,7 +124,7 @@
 <script>
 import { AppletShell, BaseButton, SectionNavBar } from '../components/common'
 import { useVaultStore } from '../stores/vault.js'
-import { vaultApi, authApi } from '../services/api.js'
+import { vaultApi, authApi, settingsApi } from '../services/api.js'
 
 export default {
   name: 'SettingsView',
@@ -122,7 +145,10 @@ export default {
       error: '',
       finishingSetup: false,
       finishStatus: '',
-      diagnosisHint: ''
+      diagnosisHint: '',
+      allowHeadlessRuns: false,
+      headlessSessionStored: false,
+      settingsSaving: false
     }
   },
   computed: {
@@ -150,6 +176,7 @@ export default {
       this.error = this.$route.query.error
     }
     if (this.vault.unlocked) {
+      await this.loadSettings()
       await this.loadMonzoSetup()
       await this.loadCredentials()
       if (this.vault.hasMonzoTokens && !this.vault.isMonzoConnected) {
@@ -163,10 +190,11 @@ export default {
       this.message = ''
       try {
         const creating = !this.vault.exists
+        const unlockOptions = { allowHeadlessRuns: this.allowHeadlessRuns }
         if (creating) {
-          await this.vault.init(this.passphrase)
+          await this.vault.init(this.passphrase, unlockOptions)
         } else {
-          await this.vault.unlock(this.passphrase)
+          await this.vault.unlock(this.passphrase, unlockOptions)
         }
         this.passphrase = ''
         this.message = creating ? 'Vault created.' : 'Vault unlocked.'
@@ -175,6 +203,7 @@ export default {
         return
       }
       try {
+        await this.loadSettings()
         await this.loadMonzoSetup()
         await this.loadCredentials()
       } catch {
@@ -182,6 +211,33 @@ export default {
       }
       const redirect = this.$route.query.redirect
       if (redirect) this.$router.push(redirect)
+    },
+    async loadSettings() {
+      try {
+        const { data } = await settingsApi.get()
+        this.allowHeadlessRuns = Boolean(
+          data.settings?.allowHeadlessRuns ?? data.settings?.autoUnlockOnStartup
+        )
+        this.headlessSessionStored = Boolean(data.headlessSessionStored)
+      } catch {
+        // optional
+      }
+    },
+    async saveSettings() {
+      this.settingsSaving = true
+      this.error = ''
+      try {
+        const { data } = await settingsApi.update({
+          allowHeadlessRuns: this.allowHeadlessRuns
+        })
+        this.allowHeadlessRuns = Boolean(data.settings?.allowHeadlessRuns)
+        this.headlessSessionStored = Boolean(data.headlessSessionStored)
+        this.message = 'Settings saved.'
+      } catch (e) {
+        this.error = e.response?.data?.error || e.message
+      } finally {
+        this.settingsSaving = false
+      }
     },
     async loadMonzoSetup() {
       try {
@@ -287,6 +343,13 @@ export default {
 .settings-view {
   height: 100%;
   min-height: 0;
+}
+
+.settings-view label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 
 .warn {

@@ -24,7 +24,9 @@
         <TransactionList
           :transactions="transactions"
           :loading="loading"
-          :empty-message="emptyMessage" />
+          :empty-message="emptyMessage"
+          selectable
+          @select="$emit('select-transaction', $event)" />
       </div>
     </div>
   </BaseModal>
@@ -47,7 +49,7 @@ export default {
     showTransactions: { type: Boolean, default: false },
     emptyMessage: { type: String, default: 'No transactions' }
   },
-  emits: ['close', 'clear-selection']
+  emits: ['close', 'clear-selection', 'select-transaction']
 }
 </script>
 

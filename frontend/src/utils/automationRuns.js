@@ -10,28 +10,29 @@ export function summarizeAutomationRun(lastRun) {
 
   const time = formatRunTime(lastRun.at)
   const status = lastRun.status || (lastRun.amount != null ? 'success' : 'success')
+  const autoPrefix = lastRun.source === 'auto' ? 'Auto · ' : ''
 
   if (status === 'success') {
     const amountLabel = lastRun.amount != null ? formatMoney(lastRun.amount) : 'Completed'
     return {
       time,
       status,
-      label: `Transferred ${amountLabel}`,
+      label: `${autoPrefix}Transferred ${amountLabel}`,
       short: amountLabel
     }
   }
 
   if (status === 'skipped') {
     const message = lastRun.message || 'Skipped'
-    return { time, status, label: message, short: 'Skipped' }
+    return { time, status, label: `${autoPrefix}${message}`, short: 'Skipped' }
   }
 
   if (status === 'error') {
     const message = lastRun.message || 'Failed'
-    return { time, status, label: message, short: 'Failed' }
+    return { time, status, label: `${autoPrefix}${message}`, short: 'Failed' }
   }
 
-  return { time, status: 'success', label: 'Ran', short: 'Ran' }
+  return { time, status: 'success', label: `${autoPrefix}Ran`, short: 'Ran' }
 }
 
 export function summarizeGroupRun(lastRun, automations = []) {
@@ -67,8 +68,9 @@ export function summarizeGroupRun(lastRun, automations = []) {
   let short = 'Skipped'
   if (status === 'success') short = `${successCount} ran`
   if (status === 'error') short = 'Failed'
+  const autoPrefix = lastRun.source === 'auto' ? 'Auto · ' : ''
 
-  return { time, status, label, short, steps }
+  return { time, status, label: `${autoPrefix}${label}`, short, steps }
 }
 
 export function runStatusLabel(status) {

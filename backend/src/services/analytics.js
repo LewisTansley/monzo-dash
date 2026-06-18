@@ -4,6 +4,7 @@ import {
   filterSpendableTransactions,
   isPotTransfer
 } from './potTransfers.js'
+import { deduplicateTransactionsById } from './transactionUtils.js'
 import { getVaultData } from './vault.js'
 
 const CATEGORIES = [
@@ -49,7 +50,9 @@ async function fetchTransactionsInRange(since, rangeBefore = null) {
     if (batch.length < 100) break
   }
 
-  return all.filter((tx) => new Date(tx.created).getTime() >= sinceTime)
+  return deduplicateTransactionsById(
+    all.filter((tx) => new Date(tx.created).getTime() >= sinceTime)
+  )
 }
 
 async function fetchAllTransactionsSince(since) {
@@ -74,14 +77,14 @@ function monthRangesYtd() {
 }
 
 async function fetchYtdTransactions() {
-  const byId = new Map()
+  const batches = []
   let verificationRequired = false
   let effectiveSince = null
 
   for (const { since, before } of monthRangesYtd()) {
     try {
       const batch = await fetchTransactionsInRange(since, before)
-      for (const tx of batch) byId.set(tx.id, tx)
+      batches.push(...batch)
       if (batch.length) {
         effectiveSince = !effectiveSince || new Date(since) < new Date(effectiveSince)
           ? since
@@ -96,7 +99,7 @@ async function fetchYtdTransactions() {
     }
   }
 
-  const transactions = [...byId.values()].sort(
+  const transactions = deduplicateTransactionsById(batches).sort(
     (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime()
   )
 
@@ -190,7 +193,9 @@ export async function getSummary(period) {
   const { transactions, verificationRequired, effectiveSince } = fetchResult
   const potNames = buildPotNamesSet(potsRes.pots || [])
   const excludedPotTransfers = transactions.filter((tx) => isPotTransfer(tx, potNames)).length
-  const spendable = filterSpendableTransactions(transactions, potNames)
+  const spendable = deduplicateTransactionsById(
+    filterSpendableTransactions(transactions, potNames)
+  )
   const seriesSince = verificationRequired ? effectiveSince : since
 
   return {

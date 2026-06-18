@@ -1,4 +1,9 @@
 import { parsePoundsToMinor, minorToPoundsInput } from './money.js'
+import {
+  defaultAutoTriggerForm,
+  autoTriggerToForm,
+  autoTriggerToPayload
+} from './automationTriggerForm.js'
 
 export function emptyCondition(accountId) {
   return {
@@ -23,7 +28,8 @@ export function defaultForm(accountId) {
       destination: { type: 'pot', id: '' },
       amount: { mode: 'fixed', value: 0, basis: 'source_balance' }
     },
-    actionAmountInput: ''
+    actionAmountInput: '',
+    autoTrigger: defaultAutoTriggerForm()
   }
 }
 
@@ -43,7 +49,8 @@ export function automationToForm(automation) {
     actionAmountInput:
       a.action.amount.mode === 'fixed'
         ? minorToPoundsInput(a.action.amount.value)
-        : ''
+        : '',
+    autoTrigger: autoTriggerToForm(a.autoTrigger)
   }
 }
 
@@ -79,6 +86,7 @@ export function formToPayload(form, accountId) {
     showOnDashboard: form.showOnDashboard,
     conditionLogic: form.conditionLogic,
     conditions,
-    action
+    action,
+    autoTrigger: autoTriggerToPayload(form.autoTrigger)
   }
 }

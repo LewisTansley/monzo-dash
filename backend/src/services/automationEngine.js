@@ -6,6 +6,11 @@ import {
   withdrawFromPot
 } from './monzoClient.js'
 import { getVaultData, updateVault } from './vault.js'
+import {
+  getTriggerStateKey,
+  normalizeAutoTrigger
+} from './automationTriggers.js'
+import { config } from '../config.js'
 
 const OPERATORS = {
   gt: (a, b) => a > b,
@@ -303,7 +308,20 @@ function recordAutomationRun(automationId, record) {
   })
 }
 
-export async function runAutomation(automationId) {
+function recordAutomationTriggerState(automationId, autoTrigger, now = new Date()) {
+  const stateKey = getTriggerStateKey(autoTrigger, now, config.autoTriggerTimezone)
+
+  updateVault((v) => {
+    if (!v.automationTriggerState) v.automationTriggerState = {}
+    v.automationTriggerState[automationId] = {
+      lastWindowKey: stateKey,
+      lastAttemptAt: now.toISOString()
+    }
+  })
+}
+
+export async function runAutomation(automationId, options = {}) {
+  const source = options.source || 'manual'
   const vault = getVaultData()
   const automation = vault.automations.find((a) => a.id === automationId)
   if (!automation) throw new Error('Automation not found')
@@ -314,9 +332,13 @@ export async function runAutomation(automationId) {
     const runRecord = {
       at: new Date().toISOString(),
       status: 'skipped',
-      message: 'Conditions not met'
+      message: 'Conditions not met',
+      source
     }
     recordAutomationRun(automationId, runRecord)
+    if (source === 'auto' && !options.fromGroup) {
+      recordAutomationTriggerState(automationId, automation.autoTrigger)
+    }
     return {
       status: 'skipped',
       message: runRecord.message,
@@ -329,9 +351,13 @@ export async function runAutomation(automationId) {
     const runRecord = {
       at: new Date().toISOString(),
       status: 'skipped',
-      message: 'Transfer amount is zero'
+      message: 'Transfer amount is zero',
+      source
     }
     recordAutomationRun(automationId, runRecord)
+    if (source === 'auto' && !options.fromGroup) {
+      recordAutomationTriggerState(automationId, automation.autoTrigger)
+    }
     return {
       status: 'skipped',
       message: runRecord.message,
@@ -367,9 +393,13 @@ export async function runAutomation(automationId) {
       at: new Date().toISOString(),
       status: 'success',
       amount,
-      dedupeId
+      dedupeId,
+      source
     }
     recordAutomationRun(automationId, runRecord)
+    if (source === 'auto' && !options.fromGroup) {
+      recordAutomationTriggerState(automationId, automation.autoTrigger)
+    }
 
     return {
       status: 'success',
@@ -381,9 +411,13 @@ export async function runAutomation(automationId) {
     const runRecord = {
       at: new Date().toISOString(),
       status: 'error',
-      message: err.message
+      message: err.message,
+      source
     }
     recordAutomationRun(automationId, runRecord)
+    if (source === 'auto' && !options.fromGroup) {
+      recordAutomationTriggerState(automationId, automation.autoTrigger)
+    }
     return {
       status: 'error',
       message: err.message,
@@ -408,7 +442,8 @@ export function createAutomation(data) {
     showOnDashboard: data.showOnDashboard !== false,
     conditions: data.conditions || [],
     conditionLogic: data.conditionLogic || 'all',
-    action: data.action
+    action: data.action,
+    autoTrigger: normalizeAutoTrigger(data.autoTrigger)
   }
   updateVault((v) => {
     v.automations.push(automation)
@@ -421,7 +456,11 @@ export function updateAutomation(id, data) {
   updateVault((v) => {
     const idx = v.automations.findIndex((a) => a.id === id)
     if (idx === -1) throw new Error('Automation not found')
-    v.automations[idx] = { ...v.automations[idx], ...data, id }
+    const patch = { ...data, id }
+    if (data.autoTrigger !== undefined) {
+      patch.autoTrigger = normalizeAutoTrigger(data.autoTrigger)
+    }
+    v.automations[idx] = { ...v.automations[idx], ...patch }
     updated = v.automations[idx]
   })
   return updated
@@ -431,6 +470,7 @@ export function deleteAutomation(id) {
   updateVault((v) => {
     v.automations = v.automations.filter((a) => a.id !== id)
     delete v.automationRuns[id]
+    if (v.automationTriggerState) delete v.automationTriggerState[id]
     if (v.automationGroups) {
       v.automationGroups = v.automationGroups
         .map((g) => ({

@@ -1,5 +1,6 @@
 import { config } from '../config.js'
 import { annotatePotTransfers } from './potTransfers.js'
+import { deduplicateTransactionsById } from './transactionUtils.js'
 import { getVaultData, updateVault } from './vault.js'
 
 function monzoErrorMessage(data, status) {
@@ -436,7 +437,9 @@ export async function fetchTransactionsForMonth(accountId, year, month) {
   }
 
   return sortTransactionsDesc(
-    all.filter((tx) => new Date(tx.created).getTime() >= sinceTime)
+    deduplicateTransactionsById(
+      all.filter((tx) => new Date(tx.created).getTime() >= sinceTime)
+    )
   )
 }
 

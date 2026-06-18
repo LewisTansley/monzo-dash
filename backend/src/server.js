@@ -10,6 +10,12 @@ import automationGroupRoutes from './routes/automationGroups.js'
 import budgetRoutes from './routes/budget.js'
 import categoryBudgetRoutes from './routes/budgets.js'
 import monzoSetupRoutes from './routes/monzoSetup.js'
+import settingsRoutes from './routes/settings.js'
+import {
+  vaultExists,
+  tryRestoreHeadlessSession
+} from './services/vault.js'
+import { startAutomationScheduler } from './services/automationScheduler.js'
 
 const app = express()
 
@@ -29,7 +35,13 @@ app.use('/api/automation-groups', automationGroupRoutes)
 app.use('/api/budget', budgetRoutes)
 app.use('/api/budgets', categoryBudgetRoutes)
 app.use('/api/monzo/setup', monzoSetupRoutes)
+app.use('/api/settings', settingsRoutes)
+
+if (vaultExists() && tryRestoreHeadlessSession()) {
+  console.log('Vault restored for headless automation runs')
+}
 
 app.listen(config.port, '0.0.0.0', () => {
   console.log(`Monzo Dash API listening on http://127.0.0.1:${config.port}`)
+  startAutomationScheduler()
 })

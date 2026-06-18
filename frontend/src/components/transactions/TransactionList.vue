@@ -6,7 +6,13 @@
       <div
         v-for="tx in transactions"
         :key="tx.id"
-        class="sw-list-row tx-row">
+        class="sw-list-row tx-row"
+        :class="rowClass(tx)"
+        :role="selectable ? 'button' : undefined"
+        :tabindex="selectable ? 0 : undefined"
+        @click="onRowClick(tx)"
+        @keydown.enter.prevent="onRowClick(tx)"
+        @keydown.space.prevent="onRowClick(tx)">
         <div class="tx-body">
           <span class="tx-desc">{{ tx.description }}</span>
           <span class="tx-meta">
@@ -30,12 +36,27 @@ export default {
   props: {
     transactions: { type: Array, default: () => [] },
     loading: { type: Boolean, default: false },
-    emptyMessage: { type: String, default: 'No transactions' }
+    emptyMessage: { type: String, default: 'No transactions' },
+    selectable: { type: Boolean, default: false },
+    selectedId: { type: String, default: null },
+    highlightId: { type: String, default: null }
   },
+  emits: ['select'],
   methods: {
     formatMoney,
     formatCategory,
-    formatDay
+    formatDay,
+    rowClass(tx) {
+      return {
+        'tx-row--selectable': this.selectable,
+        'tx-row--selected': this.selectable && this.selectedId === tx.id,
+        'tx-row--highlight': this.highlightId === tx.id
+      }
+    },
+    onRowClick(tx) {
+      if (!this.selectable) return
+      this.$emit('select', tx)
+    }
   }
 }
 </script>
@@ -49,6 +70,24 @@ export default {
 .tx-row {
   cursor: default;
   align-items: flex-start;
+}
+
+.tx-row--selectable {
+  cursor: pointer;
+}
+
+.tx-row--selectable:hover {
+  background: var(--sw-tab-active-bg);
+}
+
+.tx-row--highlight {
+  background: var(--sw-tab-active-bg);
+  outline: 1px solid var(--sw-blue-bright);
+  outline-offset: -1px;
+}
+
+.tx-row--selected {
+  background: var(--sw-panel-inset);
 }
 
 .tx-body {

@@ -104,3 +104,167 @@ export function flattenMonthColumns(columns) {
   }
   return all
 }
+
+export const MONZO_CATEGORIES = [
+  'general',
+  'eating_out',
+  'expenses',
+  'transport',
+  'cash',
+  'bills',
+  'entertainment',
+  'shopping',
+  'holidays',
+  'groceries'
+]
+
+export const PAYMENT_TYPES = [
+  'card',
+  'direct_debit',
+  'transfer',
+  'pot',
+  'topup',
+  'cash'
+]
+
+export const DEFAULT_KANBAN_FILTERS = {
+  query: '',
+  categories: [],
+  paymentTypes: [],
+  series: null,
+  descriptions: [],
+  hidePotTransfers: true
+}
+
+export function normalizeDescription(desc) {
+  return (desc || '').trim().replace(/\s+/g, ' ')
+}
+
+function hasMerchant(tx) {
+  const m = tx.merchant
+  if (!m) return false
+  if (typeof m === 'string') return Boolean(m)
+  return Boolean(m.id)
+}
+
+function looksLikeDirectDebitDescription(desc) {
+  const trimmed = (desc || '').trim()
+  if (!trimmed) return false
+  const letters = trimmed.replace(/[^a-zA-Z]/g, '')
+  if (!letters) return false
+  const upperRatio = (trimmed.match(/[A-Z]/g) || []).length / letters.length
+  return upperRatio >= 0.6
+}
+
+export function inferPaymentType(tx) {
+  if (tx.isPotTransfer) return 'pot'
+  if (tx.is_load) return 'topup'
+  if (tx.category === 'cash') return 'cash'
+  if (hasMerchant(tx)) return 'card'
+
+  const isDebit = tx.amount < 0
+  if (
+    isDebit &&
+    (tx.category === 'bills' || looksLikeDirectDebitDescription(tx.description))
+  ) {
+    return 'direct_debit'
+  }
+
+  if (!hasMerchant(tx)) return 'transfer'
+  return 'card'
+}
+
+export function filterByQuery(transactions, query) {
+  const q = (query || '').trim().toLowerCase()
+  if (!q) return transactions || []
+  return (transactions || []).filter((tx) =>
+    (tx.description || '').toLowerCase().includes(q)
+  )
+}
+
+export function filterByPaymentTypes(transactions, types) {
+  if (!types?.length) return transactions || []
+  const allowed = new Set(types)
+  return (transactions || []).filter((tx) => allowed.has(inferPaymentType(tx)))
+}
+
+export function filterByDescriptions(transactions, normalizedDescriptions) {
+  if (!normalizedDescriptions?.length) return transactions || []
+  const allowed = new Set(normalizedDescriptions.map(normalizeDescription))
+  return (transactions || []).filter((tx) =>
+    allowed.has(normalizeDescription(tx.description))
+  )
+}
+
+export function filterByPotTransfers(transactions, hidePotTransfers) {
+  if (!hidePotTransfers) return transactions || []
+  return (transactions || []).filter((tx) => !tx.isPotTransfer)
+}
+
+export function isKanbanFiltersActive(filters) {
+  const f = filters || DEFAULT_KANBAN_FILTERS
+  return Boolean(
+    f.query?.trim() ||
+      f.categories?.length ||
+      f.paymentTypes?.length ||
+      f.series ||
+      f.descriptions?.length ||
+      f.hidePotTransfers === false
+  )
+}
+
+export function applyKanbanFilters(transactions, filters) {
+  const f = { ...DEFAULT_KANBAN_FILTERS, ...filters }
+  let result = transactions || []
+  result = filterByPotTransfers(result, f.hidePotTransfers)
+  result = filterByQuery(result, f.query)
+  if (f.categories?.length) {
+    result = filterByCategory(result, f.categories)
+  }
+  if (f.paymentTypes?.length) {
+    result = filterByPaymentTypes(result, f.paymentTypes)
+  }
+  if (f.descriptions?.length) {
+    result = filterByDescriptions(result, f.descriptions)
+  }
+  if (f.series) {
+    result = filterBySeries(result, f.series)
+  }
+  return result
+}
+
+export function collectFilterOptions(columns) {
+  const flat = flattenMonthColumns(columns)
+  const categorySet = new Set(MONZO_CATEGORIES)
+  const descCounts = new Map()
+
+  for (const tx of flat) {
+    categorySet.add(tx.category || 'general')
+    const norm = normalizeDescription(tx.description)
+    if (!norm) continue
+    const entry = descCounts.get(norm) || { description: norm, label: norm, count: 0 }
+    entry.count += 1
+    descCounts.set(norm, entry)
+  }
+
+  const categories = [...categorySet].sort()
+  const recurringDescriptions = [...descCounts.values()]
+    .filter((entry) => entry.count >= 2)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, 24)
+
+  return { categories, recurringDescriptions }
+}
+
+export function summarizeKanbanMatches(columns, filters) {
+  let count = 0
+  let monthCount = 0
+  for (const column of columns || []) {
+    const filtered = applyKanbanFilters(column.transactions, filters)
+    if (filtered.length) {
+      monthCount += 1
+      count += filtered.length
+    }
+  }
+  return { count, monthCount }
+}

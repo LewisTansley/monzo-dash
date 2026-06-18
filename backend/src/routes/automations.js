@@ -9,6 +9,7 @@ import {
   dryRunAutomation,
   runAutomation
 } from '../services/automationEngine.js'
+import { runAutoCheck } from '../services/automationScheduler.js'
 import { getVaultData } from '../services/vault.js'
 
 const router = Router()
@@ -63,6 +64,15 @@ router.delete('/:id', (req, res) => {
   try {
     deleteAutomation(req.params.id)
     res.json({ ok: true })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+router.post('/auto-check', async (_req, res) => {
+  try {
+    const result = await runAutoCheck()
+    res.json(result)
   } catch (err) {
     res.status(400).json({ error: err.message })
   }

@@ -31,11 +31,11 @@ export const useVaultStore = defineStore('vault', {
       this.accountId = data.accountId || ''
       return data
     },
-    async init(passphrase) {
+    async init(passphrase, options = {}) {
       this.loading = true
       this.error = null
       try {
-        await vaultApi.init(passphrase)
+        await vaultApi.init(passphrase, options)
         await this.refreshStatus()
       } catch (e) {
         this.error = formatVaultError(e)
@@ -44,11 +44,11 @@ export const useVaultStore = defineStore('vault', {
         this.loading = false
       }
     },
-    async unlock(passphrase) {
+    async unlock(passphrase, options = {}) {
       this.loading = true
       this.error = null
       try {
-        await vaultApi.unlock(passphrase)
+        await vaultApi.unlock(passphrase, options)
         await this.refreshStatus()
       } catch (e) {
         this.error = formatVaultError(e)

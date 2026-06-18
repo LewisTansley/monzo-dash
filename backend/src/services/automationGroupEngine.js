@@ -6,6 +6,8 @@ import {
   applyTransferToBalances
 } from './automationEngine.js'
 import { getVaultData, updateVault } from './vault.js'
+import { getTriggerStateKey, normalizeAutoTrigger } from './automationTriggers.js'
+import { config } from '../config.js'
 
 function validateAutomationIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -36,7 +38,8 @@ export function createAutomationGroup(data) {
     name: data.name || 'Untitled group',
     enabled: data.enabled !== false,
     showOnDashboard: data.showOnDashboard !== false,
-    automationIds
+    automationIds,
+    autoTrigger: normalizeAutoTrigger(data.autoTrigger)
   }
   updateVault((v) => {
     if (!v.automationGroups) v.automationGroups = []
@@ -53,7 +56,11 @@ export function updateAutomationGroup(id, data) {
     if (data.automationIds !== undefined) {
       validateAutomationIds(data.automationIds)
     }
-    v.automationGroups[idx] = { ...v.automationGroups[idx], ...data, id }
+    const patch = { ...data, id }
+    if (data.autoTrigger !== undefined) {
+      patch.autoTrigger = normalizeAutoTrigger(data.autoTrigger)
+    }
+    v.automationGroups[idx] = { ...v.automationGroups[idx], ...patch }
     updated = v.automationGroups[idx]
   })
   return updated
@@ -63,6 +70,18 @@ export function deleteAutomationGroup(id) {
   updateVault((v) => {
     v.automationGroups = (v.automationGroups || []).filter((g) => g.id !== id)
     if (v.automationGroupRuns) delete v.automationGroupRuns[id]
+    if (v.automationGroupTriggerState) delete v.automationGroupTriggerState[id]
+  })
+}
+
+function recordGroupTriggerState(groupId, autoTrigger, now = new Date()) {
+  const stateKey = getTriggerStateKey(autoTrigger, now, config.autoTriggerTimezone)
+  updateVault((v) => {
+    if (!v.automationGroupTriggerState) v.automationGroupTriggerState = {}
+    v.automationGroupTriggerState[groupId] = {
+      lastWindowKey: stateKey,
+      lastAttemptAt: now.toISOString()
+    }
   })
 }
 
@@ -133,7 +152,8 @@ export async function dryRunAutomationGroup(groupId) {
   }
 }
 
-export async function runAutomationGroup(groupId) {
+export async function runAutomationGroup(groupId, options = {}) {
+  const source = options.source || 'manual'
   const group = getAutomationGroup(groupId)
   if (!group) throw new Error('Automation group not found')
   if (!group.enabled) throw new Error('Automation group is disabled')
@@ -160,7 +180,7 @@ export async function runAutomationGroup(groupId) {
     }
 
     try {
-      const result = await runAutomation(automationId)
+      const result = await runAutomation(automationId, { source, fromGroup: true })
       results.push({
         automationId,
         status: result.status,
@@ -187,13 +207,18 @@ export async function runAutomationGroup(groupId) {
   const runRecord = {
     at: new Date().toISOString(),
     status: errorResult ? 'error' : successCount > 0 ? 'success' : 'skipped',
-    results
+    results,
+    source
   }
 
   updateVault((v) => {
     if (!v.automationGroupRuns) v.automationGroupRuns = {}
     v.automationGroupRuns[groupId] = runRecord
   })
+
+  if (source === 'auto') {
+    recordGroupTriggerState(groupId, group.autoTrigger)
+  }
 
   return {
     status: errorResult ? 'error' : successCount > 0 ? 'success' : 'skipped',

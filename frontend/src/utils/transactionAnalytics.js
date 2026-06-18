@@ -1,5 +1,55 @@
+import { periodStartDate } from './transactionFilters.js'
+
 export function spendableTransactions(transactions) {
   return (transactions || []).filter((tx) => !tx.isPotTransfer)
+}
+
+export function buildPeriodDailySeries(transactions, period) {
+  const start = periodStartDate(period)
+  const startDate = new Date(start + 'T00:00:00')
+  const today = new Date()
+  const days = {}
+
+  for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+    const key = d.toISOString().slice(0, 10)
+    days[key] = { date: key, spend: 0, income: 0 }
+  }
+
+  for (const tx of spendableTransactions(transactions)) {
+    const key = tx.created.slice(0, 10)
+    if (!days[key]) continue
+    if (tx.amount < 0) {
+      days[key].spend += Math.abs(tx.amount)
+    } else if (tx.amount > 0) {
+      days[key].income += tx.amount
+    }
+  }
+
+  return Object.values(days).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export function buildPotDailySeries(transactions, period) {
+  const start = periodStartDate(period)
+  const startDate = new Date(start + 'T00:00:00')
+  const today = new Date()
+  const days = {}
+
+  for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+    const key = d.toISOString().slice(0, 10)
+    days[key] = { date: key, spend: 0, income: 0 }
+  }
+
+  for (const tx of transactions || []) {
+    const key = tx.created.slice(0, 10)
+    if (!days[key]) continue
+    if (tx.amount < 0) {
+      days[key].spend += Math.abs(tx.amount)
+    } else if (tx.amount > 0) {
+      days[key].income += tx.amount
+    }
+  }
+
+  return Object.values(days).sort((a, b) => a.date.localeCompare(b.date))
 }
 
 export function buildMonthDailySeries(transactions, monthKey) {

@@ -138,16 +138,21 @@
         </select>
       </label>
     </div>
+
+    <div v-show="activeSection === 'autotrigger'" class="sw-form-section">
+      <AutomationAutoTriggerPanel :auto-trigger="form.autoTrigger" />
+    </div>
   </div>
 </template>
 
 <script>
 import { BaseButton } from '../common'
 import { emptyCondition } from '../../utils/automationForm.js'
+import AutomationAutoTriggerPanel from './AutomationAutoTriggerPanel.vue'
 
 export default {
   name: 'AutomationSectionPanel',
-  components: { BaseButton },
+  components: { BaseButton, AutomationAutoTriggerPanel },
   props: {
     form: {
       type: Object,

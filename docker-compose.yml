@@ -13,6 +13,8 @@ services:
       MONZO_REDIRECT_URI: http://localhost:3001/api/auth/monzo/callback
       FRONTEND_URL: http://localhost:8080
       VAULT_PATH: .vault/monzo.vault.enc
+      AUTO_TRIGGER_INTERVAL_MS: 60000
+      AUTO_TRIGGER_TIMEZONE: Europe/London
     volumes:
       - ./.vault:/app/.vault
     restart: unless-stopped

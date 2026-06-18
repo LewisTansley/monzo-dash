@@ -10,7 +10,14 @@
             <div
               v-for="pot in pots"
               :key="pot.id"
-              class="sw-list-row">
+              class="sw-list-row"
+              :class="{ active: selectedPotId === pot.id }"
+              role="button"
+              tabindex="0"
+              :aria-label="`View ${pot.name} transfers`"
+              @click="openPotDetail(pot)"
+              @keydown.enter.prevent="openPotDetail(pot)"
+              @keydown.space.prevent="openPotDetail(pot)">
               <span>{{ pot.name }}</span>
               <span class="sw-list-meta">{{ formatMoney(pot.balance) }}</span>
             </div>
@@ -68,7 +75,10 @@
               :class="automationRunClass(auto)"
               :disabled="!!runningId"
               @click="runAutomation(auto)">
-              <span class="auto-btn__label">{{ runningId === auto.id ? 'Running…' : auto.name }}</span>
+              <span class="auto-btn__label">
+                <span v-if="auto.autoTrigger?.enabled" class="auto-badge">Auto</span>
+                {{ runningId === auto.id ? 'Running…' : auto.name }}
+              </span>
               <span v-if="runningId !== auto.id && automationRunSummary(auto)" class="auto-last" :class="runStatusClass(automationRunSummary(auto).status)">
                 {{ automationRunSummary(auto).time }} · {{ automationRunSummary(auto).short }}
               </span>
@@ -81,7 +91,10 @@
               :class="groupRunClass(group)"
               :disabled="!!runningId"
               @click="runGroup(group)">
-              <span class="auto-btn__label">{{ runningId === groupRunningId(group.id) ? 'Running…' : group.name }}</span>
+              <span class="auto-btn__label">
+                <span v-if="group.autoTrigger?.enabled" class="auto-badge">Auto</span>
+                {{ runningId === groupRunningId(group.id) ? 'Running…' : group.name }}
+              </span>
               <span v-if="runningId !== groupRunningId(group.id)" class="auto-meta">{{ (group.automationIds || []).length }} steps</span>
               <span v-if="runningId !== groupRunningId(group.id) && groupRunSummary(group)" class="auto-last" :class="runStatusClass(groupRunSummary(group).status)">
                 {{ groupRunSummary(group).time }} · {{ groupRunSummary(group).short }}
@@ -101,11 +114,12 @@
               <span class="metric-shell-title">{{ periodLabel }} income</span>
             </template>
             <MetricCard
+              v-if="!chartDetail"
               key="grid-metric-income"
               hide-label
               :label="`${periodLabel} income`"
               :value="analytics?.totalIncome"
-              :daily-series="analytics?.dailySeries || []"
+              :daily-series="chartDailySeries"
               series-key="income"
               tone="positive" />
           </ChartPanelShell>
@@ -114,11 +128,12 @@
               <span class="metric-shell-title">{{ periodLabel }} spend</span>
             </template>
             <MetricCard
+              v-if="!chartDetail"
               key="grid-metric-spend"
               hide-label
               :label="`${periodLabel} spend`"
               :value="analytics?.totalSpend"
-              :daily-series="analytics?.dailySeries || []"
+              :daily-series="chartDailySeries"
               series-key="spend"
               tone="negative" />
           </ChartPanelShell>
@@ -130,9 +145,10 @@
               <h2 class="chart-shell-title">Income vs spend ({{ periodLabel }})</h2>
             </template>
             <TrendLineChart
+              v-if="!chartDetail"
               key="grid-trend"
               hide-title
-              :daily-series="analytics?.dailySeries || []"
+              :daily-series="chartDailySeries"
               :period="period"
               @select-date="(payload) => onChartDateSelect('trend', payload)" />
           </ChartPanelShell>
@@ -141,6 +157,7 @@
               <h2 class="chart-shell-title">Spending by category</h2>
             </template>
             <CategoryDonutChart
+              v-if="!chartDetail"
               key="grid-donut"
               hide-title
               :by-category="analytics?.byCategory || {}"
@@ -194,17 +211,10 @@
             <p v-if="transactionsLoading && !transactionMonths.length" class="sw-empty">Loading...</p>
             <template v-for="group in transactionMonths" :key="group.key">
               <h3 class="tx-month-header">{{ group.label }}</h3>
-              <div v-for="tx in group.transactions" :key="tx.id" class="sw-list-row tx-row">
-                <div class="tx-body">
-                  <span class="tx-desc">{{ tx.description }}</span>
-                  <span class="tx-meta">
-                    {{ formatCategory(tx.category) }} · {{ formatDay(tx.created) }}
-                  </span>
-                </div>
-                <span class="tx-amount" :class="{ credit: tx.amount > 0 }">
-                  {{ formatMoney(tx.amount) }}
-                </span>
-              </div>
+              <TransactionList
+                :transactions="group.transactions"
+                selectable
+                @select="openTransactionDrilldown" />
               <p v-if="!group.transactions.length" class="sw-empty tx-month-empty">No transactions</p>
             </template>
             <p v-if="transactionsLoadingMore" class="sw-empty tx-feed-status">Loading more...</p>
@@ -231,14 +241,15 @@
       :show-transactions="!!chartDetail?.selection"
       :empty-message="chartEmptyMessage"
       @close="closeChartDetail"
-      @clear-selection="clearChartSelection">
+      @clear-selection="clearChartSelection"
+      @select-transaction="openTransactionDrilldown">
       <template #chart>
         <TrendLineChart
           v-if="chartDetail?.source === 'trend'"
           :key="chartModalKey"
           expanded
           hide-title
-          :daily-series="analytics?.dailySeries || []"
+          :daily-series="chartDailySeries"
           :period="period"
           :selected-date="chartDetail?.selection?.date"
           @select-date="(payload) => onChartDateSelect('trend', payload)" />
@@ -269,7 +280,7 @@
           hide-label
           :label="`${periodLabel} income`"
           :value="analytics?.totalIncome"
-          :daily-series="analytics?.dailySeries || []"
+          :daily-series="chartDailySeries"
           series-key="income"
           tone="positive"
           @select-date="(payload) => onChartDateSelect('metric-income', payload)" />
@@ -280,12 +291,53 @@
           hide-label
           :label="`${periodLabel} spend`"
           :value="analytics?.totalSpend"
-          :daily-series="analytics?.dailySeries || []"
+          :daily-series="chartDailySeries"
           series-key="spend"
           tone="negative"
           @select-date="(payload) => onChartDateSelect('metric-spend', payload)" />
+        <div v-else-if="chartDetail?.source === 'pot'" :key="chartModalKey" class="pot-detail">
+          <div class="pot-detail-summary">
+            <div class="pot-detail-stat">
+              <span class="pot-detail-stat__label">Balance</span>
+              <span class="pot-detail-stat__value">{{ formatMoney(chartDetail.pot?.balance) }}</span>
+            </div>
+            <div class="pot-detail-stat">
+              <span class="pot-detail-stat__label">{{ periodLabel }} deposits</span>
+              <span class="pot-detail-stat__value">{{ formatMoney(potPeriodSummary.deposits) }}</span>
+            </div>
+            <div class="pot-detail-stat">
+              <span class="pot-detail-stat__label">{{ periodLabel }} withdrawals</span>
+              <span class="pot-detail-stat__value">{{ formatMoney(potPeriodSummary.withdrawals) }}</span>
+            </div>
+            <div class="pot-detail-stat">
+              <span class="pot-detail-stat__label">{{ periodLabel }} net</span>
+              <span class="pot-detail-stat__value" :class="potPeriodNetClass">
+                {{ formatMoney(potPeriodSummary.net) }}
+              </span>
+            </div>
+          </div>
+          <TrendLineChart
+            expanded
+            hide-title
+            :daily-series="potDailySeries"
+            :period="period"
+            :selected-date="chartDetail?.selection?.date"
+            :series-labels="potSeriesLabels"
+            @select-date="(payload) => onChartDateSelect('pot', payload)" />
+        </div>
       </template>
     </ChartDetailModal>
+
+    <RelatedTransactionsModal
+      :is-open="!!txDrilldownAnchor"
+      :title="txDrilldownTitle"
+      :loading="txDrilldownLoading"
+      :anchor-tx="txDrilldownAnchor"
+      :transactions="txDrilldownTransactions"
+      :selection-label="txDrilldownLabel"
+      :selection-meta="txDrilldownMeta"
+      @close="closeTransactionDrilldown"
+      @select="openTransactionDrilldown" />
 
     <BaseModal
       :is-open="!!confirmTarget"
@@ -314,17 +366,27 @@ import CategoryDonutChart from '../components/dashboard/CategoryDonutChart.vue'
 import BudgetProgressList from '../components/dashboard/BudgetProgressList.vue'
 import ChartPanelShell from '../components/charts/ChartPanelShell.vue'
 import ChartDetailModal from '../components/charts/ChartDetailModal.vue'
+import TransactionList from '../components/transactions/TransactionList.vue'
+import RelatedTransactionsModal from '../components/transactions/RelatedTransactionsModal.vue'
 import { monzoApi, analyticsApi, automationsApi, automationGroupsApi } from '../services/api.js'
 import { formatMoney } from '../utils/money.js'
-import { formatCategory, formatDay, monthFeedToColumn } from '../utils/transactions.js'
+import { monthFeedToColumn } from '../utils/transactions.js'
 import { summarizeAutomationRun, summarizeGroupRun } from '../utils/automationRuns.js'
 import {
   ensureTransactionsForPeriod,
+  ensureTransactionsForDrilldown,
   drilldownTransactions,
+  drilldownPotTransactions,
+  drilldownRelatedTransactions,
+  drilldownTitle,
+  resolveTransactionDrilldown,
   selectionSummary
 } from '../composables/useTransactionDrilldown.js'
+import { buildPeriodDailySeries, buildPotDailySeries } from '../utils/transactionAnalytics.js'
+import { flattenMonthColumns, monthKeysForPeriod } from '../utils/transactionFilters.js'
 
 const CONFIRM_THRESHOLD = 5000
+const DASHBOARD_POLL_MS = 3 * 60 * 1000
 
 export default {
   name: 'DashboardView',
@@ -335,6 +397,8 @@ export default {
     BaseModal,
     ChartPanelShell,
     ChartDetailModal,
+    TransactionList,
+    RelatedTransactionsModal,
     BalanceHeroCard,
     MetricCard,
     TrendLineChart,
@@ -368,7 +432,20 @@ export default {
       runFeedbackStatus: '',
       chartDetail: null,
       chartDrilldownLoading: false,
-      chartDrilldownTransactions: []
+      chartDrilldownTransactions: [],
+      potPeriodTransactions: [],
+      txDrilldownAnchor: null,
+      txDrilldownTransactions: [],
+      txDrilldownLoading: false,
+      refreshPollId: null,
+      isPageVisible: true
+    }
+  },
+  watch: {
+    period() {
+      if (this.chartDetail?.selection) {
+        this.loadChartDrilldown()
+      }
     }
   },
   computed: {
@@ -378,11 +455,45 @@ export default {
     analytics() {
       return this.period === 'ytd' ? this.ytd : this.mtd
     },
+    chartDailySeries() {
+      const fallback = this.analytics?.dailySeries || []
+      if (!this.transactionMonths.length) return fallback
+
+      const requiredKeys = monthKeysForPeriod(this.period)
+      const loadedKeys = new Set(this.transactionMonths.map((col) => col.key))
+      if (!requiredKeys.every((key) => loadedKeys.has(key))) return fallback
+
+      const flat = flattenMonthColumns(this.transactionMonths)
+      if (!flat.length) return fallback
+
+      return buildPeriodDailySeries(flat, this.period)
+    },
     summaryNetClass() {
       return (this.analytics?.net || 0) >= 0 ? 'positive' : 'negative'
     },
     potsTotal() {
       return this.pots.reduce((sum, p) => sum + (p.balance || 0), 0)
+    },
+    selectedPotId() {
+      return this.chartDetail?.source === 'pot' ? this.chartDetail.pot?.id : null
+    },
+    potSeriesLabels() {
+      return { income: 'Withdrawals', spend: 'Deposits' }
+    },
+    potDailySeries() {
+      if (!this.potPeriodTransactions.length) return []
+      return buildPotDailySeries(this.potPeriodTransactions, this.period)
+    },
+    potPeriodSummary() {
+      const summary = selectionSummary(this.potPeriodTransactions)
+      return {
+        deposits: summary.spend,
+        withdrawals: summary.income,
+        net: summary.net
+      }
+    },
+    potPeriodNetClass() {
+      return this.potPeriodSummary.net >= 0 ? 'positive' : 'negative'
     },
     dashboardAutomations() {
       return this.automations.filter((a) => a.enabled && a.showOnDashboard !== false)
@@ -422,10 +533,14 @@ export default {
       const sel = this.chartDetail.selection
       const category = sel?.category || (sel?.categories ? 'other' : '')
       const date = sel?.date || ''
-      return `${this.chartDetail.source}-${category}-${date}`
+      const potId = this.chartDetail.pot?.id || sel?.potId || ''
+      return `${this.chartDetail.source}-${potId}-${category}-${date}`
     },
     chartDetailTitle() {
       if (!this.chartDetail) return ''
+      if (this.chartDetail.source === 'pot' && this.chartDetail.pot) {
+        return `${this.chartDetail.pot.name} (${this.periodLabel})`
+      }
       const titles = {
         trend: `Income vs spend (${this.periodLabel})`,
         donut: `Spending by category (${this.periodLabel})`,
@@ -461,7 +576,20 @@ export default {
     },
     chartSelectionMeta() {
       const sel = this.chartDetail?.selection
-      if (!sel || !this.chartDrilldownTransactions.length) return ''
+      if (!sel) return ''
+
+      if (this.chartDetail?.source === 'pot') {
+        const list = sel.date ? this.chartDrilldownTransactions : this.potPeriodTransactions
+        if (!list.length) return ''
+        const summary = selectionSummary(list)
+        const parts = [`${summary.count} transfer${summary.count === 1 ? '' : 's'}`]
+        if (summary.spend > 0) parts.push(`deposits ${formatMoney(summary.spend)}`)
+        if (summary.income > 0) parts.push(`withdrawals ${formatMoney(summary.income)}`)
+        if (this.chartDetail.pot) parts.push(`balance ${formatMoney(this.chartDetail.pot.balance)}`)
+        return parts.join(' · ')
+      }
+
+      if (!this.chartDrilldownTransactions.length) return ''
       const summary = selectionSummary(this.chartDrilldownTransactions)
       const parts = [`${summary.count} transactions`]
       if (summary.spend > 0) parts.push(`spend ${formatMoney(summary.spend)}`)
@@ -471,19 +599,52 @@ export default {
     chartEmptyMessage() {
       const sel = this.chartDetail?.selection
       if (!sel) return 'No transactions'
+      if (this.chartDetail?.source === 'pot') {
+        if (sel.date) return `No transfers on ${this.chartSelectionLabel}`
+        if (sel.label) return `No transfers for ${sel.label} in ${this.periodLabel}`
+        return `No transfers for ${this.periodLabel}`
+      }
       if (sel.date) return `No transactions on ${this.chartSelectionLabel}`
       if (sel.label) return `No ${sel.label} transactions for ${this.periodLabel}`
       return `No transactions for ${this.periodLabel}`
+    },
+    txDrilldownRule() {
+      return resolveTransactionDrilldown(this.txDrilldownAnchor, this.pots)
+    },
+    txDrilldownTitle() {
+      return drilldownTitle(this.txDrilldownRule)
+    },
+    txDrilldownLabel() {
+      return this.txDrilldownRule?.label || ''
+    },
+    txDrilldownMeta() {
+      if (!this.txDrilldownTransactions.length) return ''
+      const summary = selectionSummary(this.txDrilldownTransactions)
+      if (this.txDrilldownRule?.type === 'pot') {
+        const parts = [`${summary.count} transfer${summary.count === 1 ? '' : 's'}`]
+        if (summary.spend > 0) parts.push(`deposits ${formatMoney(summary.spend)}`)
+        if (summary.income > 0) parts.push(`withdrawals ${formatMoney(summary.income)}`)
+        return parts.join(' · ')
+      }
+      const parts = [`${summary.count} transaction${summary.count === 1 ? '' : 's'}`]
+      if (summary.spend > 0) parts.push(`spend ${formatMoney(summary.spend)}`)
+      if (summary.income > 0) parts.push(`income ${formatMoney(summary.income)}`)
+      return parts.join(' · ')
     }
   },
   mounted() {
     this.loadAll()
     this.loadTransactions()
+    this.isPageVisible = document.visibilityState !== 'hidden'
+    document.addEventListener('visibilitychange', this.onVisibilityChange)
+    this.startRefreshPoll()
+  },
+  beforeUnmount() {
+    document.removeEventListener('visibilitychange', this.onVisibilityChange)
+    this.stopRefreshPoll()
   },
   methods: {
     formatMoney,
-    formatCategory,
-    formatDay,
     formatDate(iso) {
       return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
     },
@@ -603,17 +764,41 @@ export default {
     openChartDetail(source) {
       this.chartDetail = { source, selection: null }
       this.chartDrilldownTransactions = []
+      this.potPeriodTransactions = []
       this.chartDrilldownLoading = false
+    },
+    openPotDetail(pot) {
+      this.chartDetail = {
+        source: 'pot',
+        pot,
+        selection: { potId: pot.id, label: pot.name }
+      }
+      this.chartDrilldownTransactions = []
+      this.potPeriodTransactions = []
+      this.loadChartDrilldown()
     },
     closeChartDetail() {
       this.chartDetail = null
       this.chartDrilldownTransactions = []
+      this.potPeriodTransactions = []
       this.chartDrilldownLoading = false
     },
     clearChartSelection() {
       if (!this.chartDetail) return
+      if (this.chartDetail.source === 'pot' && this.chartDetail.pot) {
+        this.chartDetail = {
+          ...this.chartDetail,
+          selection: {
+            potId: this.chartDetail.pot.id,
+            label: this.chartDetail.pot.name
+          }
+        }
+        this.loadChartDrilldown()
+        return
+      }
       this.chartDetail = { ...this.chartDetail, selection: null }
       this.chartDrilldownTransactions = []
+      this.potPeriodTransactions = []
       this.chartDrilldownLoading = false
     },
     onChartCategorySelect(source, payload) {
@@ -628,7 +813,17 @@ export default {
             ? 'spend'
             : payload.seriesKey
       const selection = { ...payload, seriesKey: seriesKey || payload.seriesKey }
-      this.chartDetail = { source, selection }
+      if (source === 'pot' && this.chartDetail?.pot) {
+        this.chartDetail = {
+          ...this.chartDetail,
+          selection: {
+            potId: this.chartDetail.pot.id,
+            ...selection
+          }
+        }
+      } else {
+        this.chartDetail = { source, selection }
+      }
       this.loadChartDrilldown()
     },
     mergeTransactionMonths(columns) {
@@ -638,32 +833,111 @@ export default {
       }
       this.transactionMonths = [...byKey.values()].sort((a, b) => b.key.localeCompare(a.key))
     },
+    openTransactionDrilldown(tx) {
+      if (!tx) return
+      const nextRule = resolveTransactionDrilldown(tx, this.pots)
+      const currentRule = resolveTransactionDrilldown(this.txDrilldownAnchor, this.pots)
+      const sameGroup =
+        currentRule &&
+        nextRule &&
+        currentRule.type === nextRule.type &&
+        (currentRule.type === 'pot'
+          ? currentRule.pot?.id === nextRule.pot?.id
+          : currentRule.description === nextRule.description)
+
+      this.txDrilldownAnchor = tx
+      if (sameGroup && this.txDrilldownTransactions.length) return
+      this.loadTransactionDrilldown()
+    },
+    closeTransactionDrilldown() {
+      this.txDrilldownAnchor = null
+      this.txDrilldownTransactions = []
+      this.txDrilldownLoading = false
+    },
+    async loadTransactionDrilldown() {
+      const anchor = this.txDrilldownAnchor
+      if (!anchor) {
+        this.txDrilldownTransactions = []
+        return
+      }
+
+      this.txDrilldownLoading = true
+      try {
+        const pagination = {
+          hasMore: this.transactionsHasMore,
+          nextMonth: this.transactionsNextMonth
+        }
+        const { columns, transactions } = await ensureTransactionsForDrilldown({
+          loadedMonths: this.transactionMonths,
+          pagination,
+          onColumnsUpdate: (cols) => this.mergeTransactionMonths(cols),
+          fetchMonth: async (monthKey) => {
+            const { data } = await monzoApi.transactionMonth(monthKey)
+            this.applyTransactionMonthFeed(data, { append: true })
+            if (!data.hasMore && !data.verificationRequired) {
+              this.transactionsEndMessage = this.transactionsEndMessage || 'No more transactions.'
+            }
+            return data
+          }
+        })
+        this.mergeTransactionMonths(columns)
+        this.transactionsHasMore = pagination.hasMore
+        this.transactionsNextMonth = pagination.nextMonth
+        this.txDrilldownTransactions = drilldownRelatedTransactions({
+          anchorTx: anchor,
+          transactions,
+          pots: this.pots
+        })
+      } catch (e) {
+        this.txDrilldownTransactions = []
+        this.loadError = this.loadError || e.response?.data?.error || e.message
+      } finally {
+        this.txDrilldownLoading = false
+      }
+    },
     async loadChartDrilldown() {
       const sel = this.chartDetail?.selection
       if (!sel) {
         this.chartDrilldownTransactions = []
+        this.potPeriodTransactions = []
         return
       }
+
+      const isPot = this.chartDetail?.source === 'pot'
+      const pot = this.chartDetail?.pot
 
       this.chartDrilldownLoading = true
       try {
         const { columns, transactions } = await ensureTransactionsForPeriod({
           period: this.period,
           loadedMonths: this.transactionMonths,
+          includePotTransfers: isPot,
           fetchMonth: async (monthKey) => {
             const { data } = await monzoApi.transactionMonth(monthKey)
             return data
           }
         })
         this.mergeTransactionMonths(columns)
-        this.chartDrilldownTransactions = drilldownTransactions({
-          transactions,
-          category: sel.categories || sel.category,
-          date: sel.date,
-          seriesKey: sel.seriesKey
-        })
+        if (isPot && pot) {
+          this.potPeriodTransactions = drilldownPotTransactions({ transactions, pot })
+          this.chartDrilldownTransactions = drilldownPotTransactions({
+            transactions,
+            pot,
+            date: sel.date,
+            seriesKey: sel.seriesKey
+          })
+        } else {
+          this.potPeriodTransactions = []
+          this.chartDrilldownTransactions = drilldownTransactions({
+            transactions,
+            category: sel.categories || sel.category,
+            date: sel.date,
+            seriesKey: sel.seriesKey
+          })
+        }
       } catch (e) {
         this.chartDrilldownTransactions = []
+        this.potPeriodTransactions = []
         this.loadError = this.loadError || e.response?.data?.error || e.message
       } finally {
         this.chartDrilldownLoading = false
@@ -719,6 +993,32 @@ export default {
       } catch {
         // parent save message already shown; user can Refresh if needed
       }
+    },
+    onVisibilityChange() {
+      this.isPageVisible = document.visibilityState !== 'hidden'
+      if (this.isPageVisible) {
+        this.pollDashboard()
+        this.startRefreshPoll()
+      } else {
+        this.stopRefreshPoll()
+      }
+    },
+    startRefreshPoll() {
+      this.stopRefreshPoll()
+      if (!this.isPageVisible) return
+      this.refreshPollId = window.setInterval(() => {
+        this.pollDashboard()
+      }, DASHBOARD_POLL_MS)
+    },
+    stopRefreshPoll() {
+      if (this.refreshPollId) {
+        clearInterval(this.refreshPollId)
+        this.refreshPollId = null
+      }
+    },
+    async pollDashboard() {
+      if (!this.isPageVisible || this.runningId) return
+      await this.loadAll()
     },
     groupRunningId(id) {
       return `group:${id}`
@@ -953,6 +1253,45 @@ export default {
   text-align: right;
 }
 
+.pot-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pot-detail-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  padding: 0.75rem 1rem;
+  background: var(--sw-panel-inset);
+  border-radius: 8px;
+}
+
+.pot-detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 100px;
+}
+
+.pot-detail-stat__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sw-text-muted);
+}
+
+.pot-detail-stat__value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--sw-text-primary);
+}
+
+.pot-detail-stat__value.positive { color: var(--sw-success); }
+.pot-detail-stat__value.negative { color: var(--sw-danger-soft); }
+
 .tx-month-header {
   margin: 1rem 0 0.5rem;
   font-size: 0.72rem;
@@ -1064,10 +1403,25 @@ export default {
 }
 
 .auto-btn__label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.auto-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: var(--sw-blue);
+  color: var(--sw-panel);
 }
 
 .auto-btn:hover:not(:disabled) {
