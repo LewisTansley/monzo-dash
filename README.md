@@ -87,7 +87,7 @@ Copy `.env.example` to `.env` to customize ports, scheduler settings, or vault p
 
 ### Headless / server deployment
 
-For unattended auto-runs across Docker restarts, Monzo Dash uses **on-disk session persistence** — not a plaintext passphrase in `.env`.
+For unattended auto-runs across Docker restarts, Monzo Dash uses **on-disk session persistence**.
 
 When you unlock with **Allow automatic runs without the dashboard open** enabled, the backend writes two files under `.vault/`:
 
