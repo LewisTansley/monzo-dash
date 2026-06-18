@@ -1,6 +1,6 @@
 <!-- eslint-disable vue/no-mutating-props -- autoTrigger is a mutable draft owned by the parent -->
 <template>
-  <div class="auto-trigger-panel">
+  <div class="auto-trigger-panel sw-form-section">
     <label class="checkbox">
       <input v-model="autoTrigger.enabled" type="checkbox" />
       Enable automatic runs
@@ -70,12 +70,38 @@
       </template>
 
       <label>
-        Run at most
+        Per
         <select v-model="autoTrigger.frequency">
-          <option value="once_per_window">Once per schedule window</option>
-          <option value="once_per_day">Once per day</option>
+          <option v-if="showSchedule" value="once_per_window">Schedule window</option>
+          <option value="once_per_day">Calendar day</option>
         </select>
       </label>
+
+      <label>
+        Run at most
+        <select v-model="runLimitMode" @change="onRunLimitModeChange">
+          <option value="once">Once</option>
+          <option value="count">A specific number of times</option>
+          <option value="unlimited">Unlimited times</option>
+        </select>
+      </label>
+
+      <template v-if="runLimitMode === 'count'">
+        <label>
+          Number of times
+          <input
+            v-model.number="autoTrigger.runLimit.max"
+            type="number"
+            min="2" />
+        </label>
+        <label>
+          Count toward limit
+          <select v-model="autoTrigger.runLimit.countAttempts">
+            <option value="all">All auto-run attempts</option>
+            <option value="successful">Successful transfers only</option>
+          </select>
+        </label>
+      </template>
 
       <p class="mode-hint">{{ frequencyHint }}</p>
       <p v-if="summary" class="auto-summary">{{ summary }}</p>
@@ -86,6 +112,7 @@
 <script>
 import {
   DAY_LABELS,
+  defaultRunLimitForm,
   toggleDayOfWeek
 } from '../../utils/automationTriggerForm.js'
 import { formatAutoTrigger } from '../../utils/automationDisplay.js'
@@ -108,14 +135,54 @@ export default {
         this.autoTrigger.mode === 'schedule_and_conditions'
       )
     },
-    frequencyHint() {
-      if (this.autoTrigger.frequency === 'once_per_window') {
-        return 'After one automatic attempt in the current window (e.g. this Friday), further checks that day will not re-run — even if you refresh the dashboard.'
+    runLimitMode: {
+      get() {
+        return this.autoTrigger.runLimit?.mode || 'once'
+      },
+      set(mode) {
+        if (!this.autoTrigger.runLimit) {
+          // eslint-disable-next-line vue/no-mutating-props
+          this.autoTrigger.runLimit = defaultRunLimitForm()
+        }
+        // eslint-disable-next-line vue/no-mutating-props
+        this.autoTrigger.runLimit.mode = mode
       }
-      return 'At most one automatic attempt per calendar day.'
+    },
+    windowLabel() {
+      return this.autoTrigger.frequency === 'once_per_window'
+        ? 'schedule window'
+        : 'calendar day'
+    },
+    frequencyHint() {
+      const windowLabel = this.windowLabel
+      const mode = this.runLimitMode
+
+      if (mode === 'once') {
+        if (this.autoTrigger.frequency === 'once_per_window') {
+          return 'After one automatic attempt in the current window (e.g. this Friday), further checks that day will not re-run — even if you refresh the dashboard.'
+        }
+        return 'At most one automatic attempt per calendar day.'
+      }
+
+      if (mode === 'count') {
+        const max = this.autoTrigger.runLimit?.max || 2
+        const countLabel =
+          this.autoTrigger.runLimit?.countAttempts === 'successful'
+            ? 'successful transfers'
+            : 'auto-run attempts'
+        return `Up to ${max} ${countLabel} per ${windowLabel}. Further attempts wait until the next ${windowLabel}.`
+      }
+
+      return `No limit on automatic attempts per ${windowLabel}. The scheduler may re-run whenever conditions are met.`
     },
     summary() {
       return formatAutoTrigger(this.autoTrigger)
+    }
+  },
+  created() {
+    if (!this.autoTrigger.runLimit) {
+      // eslint-disable-next-line vue/no-mutating-props
+      this.autoTrigger.runLimit = defaultRunLimitForm()
     }
   },
   methods: {
@@ -127,6 +194,16 @@ export default {
       if (!this.showSchedule && this.autoTrigger.frequency === 'once_per_window') {
         // eslint-disable-next-line vue/no-mutating-props
         this.autoTrigger.frequency = 'once_per_day'
+      }
+    },
+    onRunLimitModeChange() {
+      if (!this.autoTrigger.runLimit) {
+        // eslint-disable-next-line vue/no-mutating-props
+        this.autoTrigger.runLimit = defaultRunLimitForm()
+      }
+      if (this.autoTrigger.runLimit.mode === 'count' && !this.autoTrigger.runLimit.max) {
+        // eslint-disable-next-line vue/no-mutating-props
+        this.autoTrigger.runLimit.max = 3
       }
     },
     toggleDay(day) {
@@ -141,31 +218,6 @@ export default {
 </script>
 
 <style scoped>
-.auto-trigger-panel label {
-  display: block;
-  margin-bottom: 0.75rem;
-  font-size: 0.9rem;
-  color: var(--sw-text-secondary);
-}
-
-.auto-trigger-panel label.checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.auto-trigger-panel input,
-.auto-trigger-panel select {
-  display: block;
-  width: 100%;
-  margin-top: 0.25rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--sw-panel-inset);
-  border: 1px solid var(--sw-border);
-  border-radius: 6px;
-  color: var(--sw-text-primary);
-}
-
 .day-picker {
   margin-bottom: 0.75rem;
 }

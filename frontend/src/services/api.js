@@ -52,7 +52,9 @@ export const automationsApi = {
   delete: (id) => api.delete(`/automations/${id}`),
   dryRun: (id) => api.post(`/automations/${id}/dry-run`),
   run: (id) => api.post(`/automations/${id}/run`),
-  autoCheck: () => api.post('/automations/auto-check')
+  autoCheck: () => api.post('/automations/auto-check'),
+  schedulerStatus: () => api.get('/automations/scheduler-status'),
+  activity: () => api.get('/automations/activity')
 }
 
 export const automationGroupsApi = {

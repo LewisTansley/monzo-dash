@@ -1,5 +1,13 @@
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+export function defaultRunLimitForm() {
+  return {
+    mode: 'once',
+    max: 3,
+    countAttempts: 'all'
+  }
+}
+
 export function defaultAutoTriggerForm() {
   const today = new Date().toISOString().slice(0, 10)
   return {
@@ -13,7 +21,23 @@ export function defaultAutoTriggerForm() {
       intervalDays: 14,
       anchorDate: today
     },
-    frequency: 'once_per_day'
+    frequency: 'once_per_day',
+    runLimit: defaultRunLimitForm()
+  }
+}
+
+function normalizeRunLimitForm(runLimit) {
+  const defaults = defaultRunLimitForm()
+  if (!runLimit) return { ...defaults }
+
+  const mode = ['once', 'count', 'unlimited'].includes(runLimit.mode)
+    ? runLimit.mode
+    : defaults.mode
+
+  return {
+    mode,
+    max: Math.max(2, Number(runLimit.max) || defaults.max),
+    countAttempts: runLimit.countAttempts === 'successful' ? 'successful' : 'all'
   }
 }
 
@@ -29,7 +53,8 @@ export function autoTriggerToForm(autoTrigger) {
       ...(autoTrigger.schedule || {}),
       daysOfWeek: [...(autoTrigger.schedule?.daysOfWeek || defaults.schedule.daysOfWeek)]
     },
-    frequency: autoTrigger.frequency || defaults.frequency
+    frequency: autoTrigger.frequency || defaults.frequency,
+    runLimit: normalizeRunLimitForm(autoTrigger.runLimit)
   }
 }
 
@@ -52,12 +77,19 @@ export function autoTriggerToPayload(form) {
     frequency = 'once_per_day'
   }
 
-  return {
+  const runLimit = normalizeRunLimitForm(form.runLimit)
+  const payload = {
     enabled: form.enabled === true,
     mode: form.mode,
     schedule,
     frequency
   }
+
+  if (runLimit.mode !== 'once') {
+    payload.runLimit = runLimit
+  }
+
+  return payload
 }
 
 export function toggleDayOfWeek(days, day) {

@@ -175,6 +175,7 @@ export function defaultVaultPayload() {
     automationGroupRuns: {},
     automationTriggerState: {},
     automationGroupTriggerState: {},
+    automationActivityLog: [],
     budget: { items: [] }
   }
 }
@@ -262,6 +263,8 @@ export function unlockVault(passphrase) {
       payload.automationTriggerState || defaults.automationTriggerState,
     automationGroupTriggerState:
       payload.automationGroupTriggerState || defaults.automationGroupTriggerState,
+    automationActivityLog:
+      payload.automationActivityLog || defaults.automationActivityLog,
     budget: payload.budget || payload.homeBudget || defaults.budget
   }
   if (!sessionData.automations) sessionData.automations = []
@@ -271,6 +274,7 @@ export function unlockVault(passphrase) {
   if (!sessionData.automationGroupTriggerState) {
     sessionData.automationGroupTriggerState = {}
   }
+  if (!sessionData.automationActivityLog) sessionData.automationActivityLog = []
   if (migrateBudgetData(sessionData)) {
     saveVault()
   }

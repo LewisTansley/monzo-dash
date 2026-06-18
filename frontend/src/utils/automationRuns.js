@@ -79,3 +79,34 @@ export function runStatusLabel(status) {
   if (status === 'error') return 'Failed'
   return 'Unknown'
 }
+
+export function runStatusClass(status) {
+  if (status === 'success') return 'run-success'
+  if (status === 'skipped') return 'run-skipped'
+  if (status === 'error') return 'run-error'
+  return ''
+}
+
+export function summarizeActivityEntry(entry) {
+  if (!entry?.at) return null
+
+  if (entry.kind === 'group') {
+    return summarizeGroupRun(
+      {
+        at: entry.at,
+        status: entry.status,
+        source: entry.source,
+        results: entry.results || []
+      },
+      (entry.results || []).map((r) => ({ id: r.automationId, name: r.automationId }))
+    )
+  }
+
+  return summarizeAutomationRun({
+    at: entry.at,
+    status: entry.status,
+    source: entry.source,
+    amount: entry.amount,
+    message: entry.message
+  })
+}

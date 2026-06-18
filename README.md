@@ -52,7 +52,7 @@ Auto-run requires an **unlocked vault**. For always-on deployments (Docker), ena
 
 **Schedule types:** daily, weekly, monthly, or every N days.
 
-**Frequency limits:** at most once per calendar day, or once per schedule window (e.g. one run per Friday) — prevents duplicate transfers.
+**Frequency limits:** per calendar day or per schedule window (e.g. one run per Friday). Choose **once**, a **specific number of times**, or **unlimited** attempts within that window. When using a count, you can count either all auto-run attempts or successful transfers only.
 
 #### Where to manage automations
 
@@ -60,30 +60,13 @@ Auto-run requires an **unlocked vault**. For always-on deployments (Docker), ena
 - **Dashboard → Quick automations** — one-click manual runs for pinned rules and groups; shows an "Auto" badge when auto-run is enabled
 - Dry-run previews transfers without calling Monzo; the dashboard asks for confirmation on transfers of £50 or more
 
-#### Execution flow
-
-```mermaid
-flowchart TD
-  start[ContainerStart] --> restore{HeadlessSession}
-  restore -->|Yes| unlock[RestoreVault]
-  restore -->|No| tick
-  unlock --> tick[SchedulerTick]
-  tick --> unlocked{VaultUnlocked}
-  unlocked -->|No| skip[Skip]
-  unlocked -->|Yes| groups[RunEligibleGroups]
-  groups --> rules[RunEligibleStandaloneRules]
-  rules --> eval{ConditionsMet}
-  eval -->|No| recordSkip[RecordSkipped]
-  eval -->|Yes| transfer[MonzoPotTransfer]
-```
-
 #### Important behaviors
 
 - Auto-runs require an unlocked vault; the scheduler no-ops when locked unless a headless session is restored on startup.
 - Groups run members sequentially; live runs stop on the first error.
 - Standalone auto-triggers and group auto-triggers are independent — a rule that belongs to a group can still auto-run on its own if configured.
 - All rules and groups are stored in your encrypted local vault (`.vault/monzo.vault.enc`), not on Monzo's servers.
-- Daily Monzo dedupe prevents duplicate transfers for the same rule on the same day.
+- Monzo dedupe prevents accidental duplicate transfers; rules set to once per day use a daily dedupe id, while count/unlimited limits use per-window transfer slots.
 
 ## Quick start — Docker
 

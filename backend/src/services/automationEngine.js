@@ -7,10 +7,12 @@ import {
 } from './monzoClient.js'
 import { getVaultData, updateVault } from './vault.js'
 import {
-  getTriggerStateKey,
+  buildTriggerStateRecord,
+  getTransferDedupeId,
   normalizeAutoTrigger
 } from './automationTriggers.js'
 import { config } from '../config.js'
+import { appendAutomationActivity } from './automationActivity.js'
 
 const OPERATORS = {
   gt: (a, b) => a > b,
@@ -308,15 +310,39 @@ function recordAutomationRun(automationId, record) {
   })
 }
 
-function recordAutomationTriggerState(automationId, autoTrigger, now = new Date()) {
-  const stateKey = getTriggerStateKey(autoTrigger, now, config.autoTriggerTimezone)
+function logAutomationActivity(automation, record) {
+  appendAutomationActivity({
+    at: record.at,
+    source: record.source || 'manual',
+    kind: 'automation',
+    entityId: automation.id,
+    name: automation.name,
+    status: record.status,
+    message: record.message,
+    amount: record.amount
+  })
+}
+
+function recordAutomationTriggerState(
+  automationId,
+  autoTrigger,
+  runStatus,
+  now = new Date()
+) {
+  const timezone = config.autoTriggerTimezone
+  const vault = getVaultData()
+  const prevState = vault.automationTriggerState?.[automationId]
+  const nextState = buildTriggerStateRecord(
+    autoTrigger,
+    prevState,
+    now,
+    timezone,
+    runStatus
+  )
 
   updateVault((v) => {
     if (!v.automationTriggerState) v.automationTriggerState = {}
-    v.automationTriggerState[automationId] = {
-      lastWindowKey: stateKey,
-      lastAttemptAt: now.toISOString()
-    }
+    v.automationTriggerState[automationId] = nextState
   })
 }
 
@@ -336,8 +362,11 @@ export async function runAutomation(automationId, options = {}) {
       source
     }
     recordAutomationRun(automationId, runRecord)
+    if (!options.fromGroup) {
+      logAutomationActivity(automation, runRecord)
+    }
     if (source === 'auto' && !options.fromGroup) {
-      recordAutomationTriggerState(automationId, automation.autoTrigger)
+      recordAutomationTriggerState(automationId, automation.autoTrigger, 'skipped')
     }
     return {
       status: 'skipped',
@@ -355,8 +384,8 @@ export async function runAutomation(automationId, options = {}) {
       source
     }
     recordAutomationRun(automationId, runRecord)
-    if (source === 'auto' && !options.fromGroup) {
-      recordAutomationTriggerState(automationId, automation.autoTrigger)
+    if (!options.fromGroup) {
+      logAutomationActivity(automation, runRecord)
     }
     return {
       status: 'skipped',
@@ -366,7 +395,14 @@ export async function runAutomation(automationId, options = {}) {
   }
 
   const accountId = vault.monzo.accountId
-  const dedupeId = `${automationId}-${new Date().toISOString().slice(0, 10)}`
+  const now = new Date()
+  const dedupeId = getTransferDedupeId(
+    automationId,
+    automation.autoTrigger,
+    vault.automationTriggerState?.[automationId],
+    now,
+    config.autoTriggerTimezone
+  )
   const { action } = automation
 
   try {
@@ -397,8 +433,11 @@ export async function runAutomation(automationId, options = {}) {
       source
     }
     recordAutomationRun(automationId, runRecord)
+    if (!options.fromGroup) {
+      logAutomationActivity(automation, runRecord)
+    }
     if (source === 'auto' && !options.fromGroup) {
-      recordAutomationTriggerState(automationId, automation.autoTrigger)
+      recordAutomationTriggerState(automationId, automation.autoTrigger, 'success', now)
     }
 
     return {
@@ -415,8 +454,11 @@ export async function runAutomation(automationId, options = {}) {
       source
     }
     recordAutomationRun(automationId, runRecord)
+    if (!options.fromGroup) {
+      logAutomationActivity(automation, runRecord)
+    }
     if (source === 'auto' && !options.fromGroup) {
-      recordAutomationTriggerState(automationId, automation.autoTrigger)
+      recordAutomationTriggerState(automationId, automation.autoTrigger, 'error', now)
     }
     return {
       status: 'error',

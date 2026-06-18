@@ -58,6 +58,7 @@
     </div>
 
     <div class="right-section">
+      <AutomationActivityNotifier v-if="vault.unlocked" />
       <span class="status-pill" :class="statusClass">{{ statusLabel }}</span>
     </div>
   </div>
@@ -65,6 +66,7 @@
 
 <script>
 import { useVaultStore } from '@/stores/vault.js'
+import AutomationActivityNotifier from '@/components/automations/AutomationActivityNotifier.vue'
 
 const ROUTE_TITLES = {
   Dashboard: 'DASHBOARD',
@@ -80,6 +82,7 @@ const ROUTE_TITLES = {
 
 export default {
   name: 'TitleBar',
+  components: { AutomationActivityNotifier },
   computed: {
     vault() {
       return useVaultStore()

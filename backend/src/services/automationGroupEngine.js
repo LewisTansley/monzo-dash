@@ -6,8 +6,9 @@ import {
   applyTransferToBalances
 } from './automationEngine.js'
 import { getVaultData, updateVault } from './vault.js'
-import { getTriggerStateKey, normalizeAutoTrigger } from './automationTriggers.js'
+import { buildTriggerStateRecord, normalizeAutoTrigger } from './automationTriggers.js'
 import { config } from '../config.js'
+import { appendAutomationActivity } from './automationActivity.js'
 
 function validateAutomationIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -74,14 +75,21 @@ export function deleteAutomationGroup(id) {
   })
 }
 
-function recordGroupTriggerState(groupId, autoTrigger, now = new Date()) {
-  const stateKey = getTriggerStateKey(autoTrigger, now, config.autoTriggerTimezone)
+function recordGroupTriggerState(groupId, autoTrigger, runStatus, now = new Date()) {
+  const timezone = config.autoTriggerTimezone
+  const vault = getVaultData()
+  const prevState = vault.automationGroupTriggerState?.[groupId]
+  const nextState = buildTriggerStateRecord(
+    autoTrigger,
+    prevState,
+    now,
+    timezone,
+    runStatus
+  )
+
   updateVault((v) => {
     if (!v.automationGroupTriggerState) v.automationGroupTriggerState = {}
-    v.automationGroupTriggerState[groupId] = {
-      lastWindowKey: stateKey,
-      lastAttemptAt: now.toISOString()
-    }
+    v.automationGroupTriggerState[groupId] = nextState
   })
 }
 
@@ -216,8 +224,24 @@ export async function runAutomationGroup(groupId, options = {}) {
     v.automationGroupRuns[groupId] = runRecord
   })
 
+  appendAutomationActivity({
+    at: runRecord.at,
+    source,
+    kind: 'group',
+    entityId: groupId,
+    name: group.name,
+    status: runRecord.status,
+    message: errorResult
+      ? errorResult.message
+      : successCount > 0
+        ? `Ran ${successCount} automation(s)${skippedCount ? `, ${skippedCount} skipped` : ''}`
+        : 'No automations ran',
+    results: runRecord.results
+  })
+
   if (source === 'auto') {
-    recordGroupTriggerState(groupId, group.autoTrigger)
+    const runStatus = errorResult ? 'error' : successCount > 0 ? 'success' : 'skipped'
+    recordGroupTriggerState(groupId, group.autoTrigger, runStatus)
   }
 
   return {

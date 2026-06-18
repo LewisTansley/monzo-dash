@@ -3,6 +3,14 @@ import { config } from '../config.js'
 
 const WEEKDAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
 
+export function defaultRunLimit() {
+  return {
+    mode: 'once',
+    max: 3,
+    countAttempts: 'all'
+  }
+}
+
 export function defaultAutoTrigger() {
   const today = new Date().toISOString().slice(0, 10)
   return {
@@ -16,7 +24,23 @@ export function defaultAutoTrigger() {
       intervalDays: 14,
       anchorDate: today
     },
-    frequency: 'once_per_day'
+    frequency: 'once_per_day',
+    runLimit: defaultRunLimit()
+  }
+}
+
+export function normalizeRunLimit(runLimit) {
+  const defaults = defaultRunLimit()
+  if (!runLimit) return { ...defaults }
+
+  const mode = ['once', 'count', 'unlimited'].includes(runLimit.mode)
+    ? runLimit.mode
+    : defaults.mode
+
+  return {
+    mode,
+    max: Math.max(2, Number(runLimit.max) || defaults.max),
+    countAttempts: runLimit.countAttempts === 'successful' ? 'successful' : 'all'
   }
 }
 
@@ -31,7 +55,8 @@ export function normalizeAutoTrigger(autoTrigger) {
       ...defaults.schedule,
       ...(autoTrigger.schedule || {})
     },
-    frequency: autoTrigger.frequency || defaults.frequency
+    frequency: autoTrigger.frequency || defaults.frequency,
+    runLimit: normalizeRunLimit(autoTrigger.runLimit)
   }
 }
 
@@ -149,6 +174,78 @@ export function getTriggerStateKey(autoTrigger, now, timezone) {
   return getWindowKey(trigger, now, timezone)
 }
 
+export function getRunLimitState(autoTrigger, triggerState, now, timezone) {
+  const trigger = normalizeAutoTrigger(autoTrigger)
+  const stateKey = getTriggerStateKey(trigger, now, timezone)
+  const state = triggerState || {}
+  const isNewWindow = state.lastWindowKey !== stateKey
+  const attemptCount = isNewWindow ? 0 : (state.attemptCount || 0)
+  const transferCount = isNewWindow ? 0 : (state.transferCount || 0)
+
+  return {
+    stateKey,
+    isNewWindow,
+    attemptCount,
+    transferCount,
+    runLimit: trigger.runLimit
+  }
+}
+
+function shouldIncrementAttemptCount(runLimit, runStatus) {
+  if (runLimit.mode === 'once' || runLimit.mode === 'unlimited') {
+    return true
+  }
+  if (runLimit.mode === 'count') {
+    if (runLimit.countAttempts === 'successful') {
+      return runStatus === 'success'
+    }
+    return true
+  }
+  return false
+}
+
+export function buildTriggerStateRecord(autoTrigger, triggerState, now, timezone, runStatus) {
+  const { stateKey, isNewWindow, attemptCount, transferCount, runLimit } = getRunLimitState(
+    autoTrigger,
+    triggerState,
+    now,
+    timezone
+  )
+
+  let nextAttemptCount = attemptCount
+  if (shouldIncrementAttemptCount(runLimit, runStatus)) {
+    nextAttemptCount += 1
+  }
+
+  let nextTransferCount = transferCount
+  if (runStatus === 'success' || runStatus === 'error') {
+    nextTransferCount += 1
+  }
+
+  return {
+    lastWindowKey: stateKey,
+    attemptCount: nextAttemptCount,
+    transferCount: nextTransferCount,
+    lastAttemptAt: now.toISOString()
+  }
+}
+
+export function getTransferDedupeId(automationId, autoTrigger, triggerState, now, timezone) {
+  const trigger = normalizeAutoTrigger(autoTrigger)
+  const { stateKey, transferCount, runLimit } = getRunLimitState(
+    autoTrigger,
+    triggerState,
+    now,
+    timezone
+  )
+
+  if (runLimit.mode === 'once') {
+    return `${automationId}-${now.toISOString().slice(0, 10)}`
+  }
+
+  return `${automationId}-${stateKey}-${transferCount + 1}`
+}
+
 export function shouldAutoRun(entity, triggerState, now, timezone) {
   if (!entity?.enabled) return false
 
@@ -159,11 +256,19 @@ export function shouldAutoRun(entity, triggerState, now, timezone) {
     if (!isWithinScheduleWindow(trigger, now, timezone)) return false
   }
 
-  const state = triggerState || {}
-  const stateKey = getTriggerStateKey(trigger, now, timezone)
-  if (state.lastWindowKey === stateKey) return false
+  const { isNewWindow, attemptCount, runLimit } = getRunLimitState(
+    trigger,
+    triggerState,
+    now,
+    timezone
+  )
 
-  return true
+  if (runLimit.mode === 'unlimited') return true
+  if (isNewWindow) return true
+  if (runLimit.mode === 'once') return false
+  if (runLimit.mode === 'count') return attemptCount < runLimit.max
+
+  return false
 }
 
 export function evaluateEligibleAutomations(

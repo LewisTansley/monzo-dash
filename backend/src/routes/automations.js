@@ -9,7 +9,8 @@ import {
   dryRunAutomation,
   runAutomation
 } from '../services/automationEngine.js'
-import { runAutoCheck } from '../services/automationScheduler.js'
+import { runAutoCheck, getSchedulerStatus } from '../services/automationScheduler.js'
+import { listAutomationActivity } from '../services/automationActivity.js'
 import { getVaultData } from '../services/vault.js'
 
 const router = Router()
@@ -23,6 +24,22 @@ router.get('/', (_req, res) => {
       lastRun: vault.automationRuns[a.id] || null
     }))
     res.json({ automations })
+  } catch (err) {
+    res.status(403).json({ error: err.message })
+  }
+})
+
+router.get('/scheduler-status', (_req, res) => {
+  try {
+    res.json(getSchedulerStatus())
+  } catch (err) {
+    res.status(403).json({ error: err.message })
+  }
+})
+
+router.get('/activity', (_req, res) => {
+  try {
+    res.json({ entries: listAutomationActivity() })
   } catch (err) {
     res.status(403).json({ error: err.message })
   }

@@ -115,16 +115,34 @@ const SCHEDULE_TYPE_LABELS = {
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const FREQUENCY_LABELS = {
-  once_per_window: 'once per schedule window',
-  once_per_day: 'once per day'
+  once_per_window: 'per schedule window',
+  once_per_day: 'per calendar day'
+}
+
+function formatRunLimit(autoTrigger) {
+  const runLimit = autoTrigger.runLimit || { mode: 'once' }
+  const window = FREQUENCY_LABELS[autoTrigger.frequency] || autoTrigger.frequency
+
+  if (runLimit.mode === 'unlimited') {
+    return `unlimited times ${window}`
+  }
+
+  if (runLimit.mode === 'count') {
+    const max = runLimit.max || 2
+    const countNote =
+      runLimit.countAttempts === 'successful' ? ' (successful only)' : ''
+    return `at most ${max} times ${window}${countNote}`
+  }
+
+  return `at most once ${window}`
 }
 
 export function formatAutoTrigger(autoTrigger) {
   if (!autoTrigger?.enabled) return ''
 
   const mode = MODE_LABELS[autoTrigger.mode] || autoTrigger.mode
-  const frequency = FREQUENCY_LABELS[autoTrigger.frequency] || autoTrigger.frequency
-  const parts = [`Auto-run ${mode}`, `at most ${frequency}`]
+  const limit = formatRunLimit(autoTrigger)
+  const parts = [`Auto-run ${mode}`, limit]
 
   if (autoTrigger.mode === 'schedule' || autoTrigger.mode === 'schedule_and_conditions') {
     const schedule = autoTrigger.schedule || {}
