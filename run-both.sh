@@ -31,7 +31,7 @@ else
 fi
 
 API_PORT="${API_PORT:-3001}"
-FRONTEND_PORT="${FRONTEND_PORT:-8080}"
+FRONTEND_PORT="${FRONTEND_PORT:-8090}"
 
 kill_listener_on_port() {
   local port=$1

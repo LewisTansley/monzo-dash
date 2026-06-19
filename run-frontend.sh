@@ -1,6 +1,6 @@
 #!/bin/bash
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-FRONTEND_PORT="${FRONTEND_PORT:-8080}"
+FRONTEND_PORT="${FRONTEND_PORT:-8090}"
 export FRONTEND_PORT
 [ -f "$ROOT/.env" ] && { set -a; source "$ROOT/.env"; set +a; }
 

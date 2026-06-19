@@ -77,7 +77,7 @@ cp .env.example .env   # optional
 docker compose up --build
 ```
 
-- **Dashboard:** http://localhost:8080
+- **Dashboard:** http://localhost:8090
 - **API / OAuth callback:** http://localhost:3001
 - **Vault persistence:** `./.vault` on the host is bind-mounted to `/app/.vault` in the container (vault data, OAuth tokens, and optional headless session files)
 - The container runs the backend (`npm run start`) and Vue dev server (`npm run serve`) via `docker-entrypoint.sh`
@@ -115,10 +115,10 @@ On container start, if both files exist and headless runs are still enabled, the
 |----------|---------|---------|
 | `AUTO_TRIGGER_INTERVAL_MS` | `60000` | How often the scheduler checks for eligible auto-runs |
 | `AUTO_TRIGGER_TIMEZONE` | `Europe/London` | Timezone for schedule evaluation |
-| `API_PORT` / `FRONTEND_PORT` | `3001` / `8080` | Host port mapping |
+| `API_PORT` / `FRONTEND_PORT` | `3001` / `8090` | Host port mapping |
 | `MONZO_REDIRECT_URI` | `http://localhost:3001/api/auth/monzo/callback` | Must match your Monzo OAuth app |
 | `VAULT_PATH` | `.vault/monzo.vault.enc` | Encrypted vault file path |
-| `FRONTEND_URL` | `http://localhost:8080` | Used for CORS and redirects |
+| `FRONTEND_URL` | `http://localhost:8090` | Used for CORS and redirects |
 
 If you change host ports, update `MONZO_REDIRECT_URI` in `.env` **and** register the same URI in your Monzo developer app.
 
@@ -128,9 +128,9 @@ If you change host ports, update `MONZO_REDIRECT_URI` in `.env` **and** register
 ./run-both.sh
 ```
 
-This installs dependencies on the first run, starts the API on port 3001, and the Vue app on port 8080.
+This installs dependencies on the first run, starts the API on port 3001, and the Vue app on port 8090.
 
-- **Dashboard:** http://localhost:8080
+- **Dashboard:** http://localhost:8090
 - **API / OAuth callback:** http://localhost:3001
 
 ### Other scripts
@@ -162,7 +162,7 @@ Copy `.env.example` to `.env` to override ports or vault path.
 
 ## First-time setup
 
-1. Open http://localhost:8080/settings
+1. Open http://localhost:8090/settings
 2. Create a vault with a passphrase (stored encrypted in `.vault/monzo.vault.enc` — gitignored)
 3. Enter your Monzo client ID and secret
 4. Click **Connect Monzo** and approve access in the Monzo app

@@ -17,7 +17,7 @@ function devServerClientWebSocketURL() {
   // Direct tailnet/LAN: auto tracks the browser URL (MagicDNS, 100.x, localhost).
   // If your webpack-dev-server rejects it, set VUE_DEV_HMR_EXPLICIT=1 for ws://<host>:<port>/ws.
   if (process.env.VUE_DEV_HMR_EXPLICIT === '1') {
-    const port = Number(process.env.FRONTEND_PORT) || 8080
+    const port = Number(process.env.FRONTEND_PORT) || 8090
     const host =
       devPublicHost && devPublicHost !== 'localhost' ? devPublicHost : 'localhost'
     return { protocol: 'ws', hostname: host, port, pathname: '/ws' }
@@ -35,7 +35,7 @@ module.exports = defineConfig({
       }
     },
     host: '0.0.0.0',
-    port: Number(process.env.FRONTEND_PORT) || 8080,
+    port: Number(process.env.FRONTEND_PORT) || 8090,
     allowedHosts: 'all',
     client: {
       webSocketURL: devServerClientWebSocketURL()

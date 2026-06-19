@@ -15,7 +15,7 @@ export const config = {
   monzoRedirectUri:
     process.env.MONZO_REDIRECT_URI ||
     'http://localhost:3001/api/auth/monzo/callback',
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:8080',
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:8090',
   monzoApiBase: 'https://api.monzo.com',
   autoTriggerIntervalMs: Number(process.env.AUTO_TRIGGER_INTERVAL_MS) || 60_000,
   autoTriggerTimezone: process.env.AUTO_TRIGGER_TIMEZONE || 'Europe/London'
