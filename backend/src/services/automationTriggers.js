@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid'
 import { getVaultData } from './vault.js'
 import { config } from '../config.js'
 
@@ -230,8 +231,20 @@ export function buildTriggerStateRecord(autoTrigger, triggerState, now, timezone
   }
 }
 
-export function getTransferDedupeId(automationId, autoTrigger, triggerState, now, timezone) {
-  const trigger = normalizeAutoTrigger(autoTrigger)
+export function getTransferDedupeId(
+  automationId,
+  autoTrigger,
+  triggerState,
+  now,
+  timezone,
+  source = 'manual'
+) {
+  // Each manual run is a new transfer attempt — Monzo caches failed dedupe ids,
+  // so reusing the same id after an error replays the failure indefinitely.
+  if (source === 'manual') {
+    return `${automationId}-manual-${uuidv4()}`
+  }
+
   const { stateKey, transferCount, runLimit } = getRunLimitState(
     autoTrigger,
     triggerState,
@@ -240,7 +253,7 @@ export function getTransferDedupeId(automationId, autoTrigger, triggerState, now
   )
 
   if (runLimit.mode === 'once') {
-    return `${automationId}-${now.toISOString().slice(0, 10)}`
+    return `${automationId}-${now.toISOString().slice(0, 10)}-${transferCount + 1}`
   }
 
   return `${automationId}-${stateKey}-${transferCount + 1}`

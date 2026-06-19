@@ -1,8 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useVaultStore } from '../stores/vault.js'
 import { useAppletTransitionStore } from '../stores/appletTransition.js'
+import { useLayoutStore } from '../stores/layout.js'
+import { resolveAppPath, resolveAppRoute, usesMobilePathPrefix } from '../utils/appPaths.js'
 
-const routes = [
+const appRoutes = [
   {
     path: '/',
     name: 'Dashboard',
@@ -58,6 +60,59 @@ const routes = [
   }
 ]
 
+function mobilePath(route) {
+  if (route.path === '/') return ''
+  return route.path.replace(/^\//, '')
+}
+
+function mobileRedirect(redirect) {
+  if (typeof redirect === 'string') {
+    return redirect === '/' ? '/m' : `/m${redirect}`
+  }
+  if (typeof redirect === 'object' && redirect !== null) {
+    if (redirect.name) {
+      return { ...redirect, name: `Mobile${redirect.name}` }
+    }
+    if (redirect.path) {
+      return { ...redirect, path: mobileRedirect(redirect.path) }
+    }
+  }
+  if (typeof redirect === 'function') {
+    return (to) => {
+      const result = redirect(to)
+      if (typeof result === 'string') return mobileRedirect(result)
+      if (result?.name) return { ...result, name: `Mobile${result.name}` }
+      if (result?.path) return { ...result, path: mobileRedirect(result.path) }
+      return result
+    }
+  }
+  return redirect
+}
+
+const mobileChildRoutes = appRoutes.map((route) => {
+  const mobileRoute = {
+    ...route,
+    path: mobilePath(route),
+    meta: { ...route.meta, mobileLayout: true }
+  }
+  if (route.name) {
+    mobileRoute.name = `Mobile${route.name}`
+  }
+  if (route.redirect) {
+    mobileRoute.redirect = mobileRedirect(route.redirect)
+  }
+  return mobileRoute
+})
+
+const routes = [
+  ...appRoutes,
+  {
+    path: '/m',
+    meta: { mobileLayout: true },
+    children: mobileChildRoutes
+  }
+]
+
 const router = createRouter({
   history: createWebHistory(),
   routes
@@ -65,10 +120,31 @@ const router = createRouter({
 
 function isCrossViewNavigation(to, from) {
   if (!from.name) return false
-  return to.name !== from.name || to.path !== from.path
+  const toBase = String(to.name || '').replace(/^Mobile/, '')
+  const fromBase = String(from.name || '').replace(/^Mobile/, '')
+  return toBase !== fromBase || to.path !== from.path
+}
+
+function isMobileRoute(to) {
+  return Boolean(to.meta.mobileLayout) || to.path === '/m' || to.path.startsWith('/m/')
 }
 
 router.beforeEach(async (to, from) => {
+  if (to.path === '/m') {
+    return '/m/'
+  }
+
+  const inMobilePathContext =
+    (typeof window !== 'undefined' && usesMobilePathPrefix(window.location)) || isMobileRoute(from)
+
+  if (inMobilePathContext && !isMobileRoute(to)) {
+    return resolveAppRoute(to, { mobileLayout: true, usePathPrefix: true })
+  }
+
+  useLayoutStore().syncFromLocation(
+    typeof window !== 'undefined' ? window.location : { pathname: to.path, hostname: '' }
+  )
+
   if (isCrossViewNavigation(to, from)) {
     useAppletTransitionStore().beginRouteChange()
   }
@@ -83,12 +159,16 @@ router.beforeEach(async (to, from) => {
   }
 
   if (to.meta.requiresVault && !vault.unlocked) {
-    return { name: 'Settings', query: { redirect: to.fullPath } }
+    const settingsPath = isMobileRoute(to)
+      ? resolveAppPath('/settings', { location: window.location })
+      : '/settings'
+    return { path: settingsPath, query: { redirect: to.fullPath } }
   }
   return true
 })
 
 router.afterEach((to, from) => {
+  useLayoutStore().syncFromLocation()
   if (isCrossViewNavigation(to, from)) {
     useAppletTransitionStore().scheduleRailsRestore()
   }

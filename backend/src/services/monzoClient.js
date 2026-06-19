@@ -4,12 +4,17 @@ import { deduplicateTransactionsById } from './transactionUtils.js'
 import { getVaultData, updateVault } from './vault.js'
 
 function monzoErrorMessage(data, status) {
-  return (
+  const message =
     data?.error_description ||
     data?.message ||
     data?.error ||
+    data?.raw ||
     `Monzo API error ${status}`
-  )
+  const code = data?.code
+  if (code && !String(message).includes(code)) {
+    return `${message} (${code})`
+  }
+  return message
 }
 
 function isWaitingForApproval(err) {
@@ -86,7 +91,13 @@ async function monzoPut(path, body, accessToken) {
     },
     body: params.toString()
   })
-  const data = await res.json().catch(() => ({}))
+  const text = await res.text()
+  let data = {}
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    data = { raw: text }
+  }
   if (!res.ok) {
     const err = new Error(monzoErrorMessage(data, res.status))
     err.status = res.status

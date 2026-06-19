@@ -384,6 +384,7 @@ import {
 } from '../composables/useTransactionDrilldown.js'
 import { buildPeriodDailySeries, buildPotDailySeries } from '../utils/transactionAnalytics.js'
 import { flattenMonthColumns, monthKeysForPeriod } from '../utils/transactionFilters.js'
+import { useLayoutStore } from '../stores/layout.js'
 
 const CONFIRM_THRESHOLD = 5000
 const DASHBOARD_POLL_MS = 3 * 60 * 1000
@@ -406,9 +407,10 @@ export default {
     BudgetProgressList
   },
   data() {
+    const mobile = useLayoutStore().isMobileLayout
     return {
-      leftVisible: true,
-      rightVisible: true,
+      leftVisible: !mobile,
+      rightVisible: !mobile,
       loading: false,
       balance: null,
       pots: [],

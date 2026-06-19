@@ -167,6 +167,8 @@ export async function runAutomationGroup(groupId, options = {}) {
   if (!group.enabled) throw new Error('Automation group is disabled')
 
   const results = []
+  let simulatedBalances = null
+  const accountId = getVaultData().monzo.accountId
 
   for (const automationId of group.automationIds || []) {
     const automation = getAutomation(automationId)
@@ -188,13 +190,28 @@ export async function runAutomationGroup(groupId, options = {}) {
     }
 
     try {
-      const result = await runAutomation(automationId, { source, fromGroup: true })
+      const result = await runAutomation(automationId, {
+        source,
+        fromGroup: true,
+        balances: simulatedBalances
+      })
       results.push({
         automationId,
         status: result.status,
         amount: result.amount,
         message: result.message
       })
+      if (result.status === 'success' && result.amount > 0) {
+        if (!simulatedBalances) {
+          simulatedBalances = { ...(result.balances || {}) }
+        }
+        applyTransferToBalances(
+          automation.action,
+          result.amount,
+          simulatedBalances,
+          accountId
+        )
+      }
       if (result.status === 'error') {
         break
       }

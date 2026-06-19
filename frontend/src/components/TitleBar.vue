@@ -219,4 +219,21 @@ export default {
 .status-pill.disconnected {
   color: var(--sw-text-muted);
 }
+
+@media (max-width: 640px) {
+  .center-section {
+    display: none;
+  }
+
+  .left-section {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .right-section .status-pill {
+    font-size: 0.6rem;
+    padding: 4px 6px;
+  }
+}
 </style>

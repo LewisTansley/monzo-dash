@@ -230,14 +230,17 @@ import {
   describeGroup as buildGroupDescription
 } from '../utils/automationDisplay.js'
 import { useVaultStore } from '../stores/vault.js'
+import { resolveAppRoute } from '../utils/appPaths.js'
+import { useLayoutStore } from '../stores/layout.js'
 
 export default {
   name: 'AutomationsView',
   components: { AppletShell, SidebarPanel, BaseButton, SectionNavBar, AutomationSectionPanel },
   data() {
+    const mobile = useLayoutStore().isMobileLayout
     return {
-      leftVisible: true,
-      rightVisible: true,
+      leftVisible: !mobile,
+      rightVisible: !mobile,
       leftTab: 'rules',
       leftTabs: [
         { id: 'rules', text: 'RULES', title: 'Rules' },
@@ -389,7 +392,7 @@ export default {
     },
     clearEditQuery() {
       if (this.$route.query.edit) {
-        this.$router.replace({ name: 'Automations', query: {} })
+        this.$router.replace(resolveAppRoute({ name: 'Automations', query: {} }))
       }
     },
     async handleRouteEdit(edit) {
@@ -530,17 +533,17 @@ export default {
     },
     createNew() {
       this.startNewEdit()
-      this.$router.replace({ name: 'Automations', query: { edit: 'new' } })
+      this.$router.replace(resolveAppRoute({ name: 'Automations', query: { edit: 'new' } }))
     },
     createGroup() {
-      this.$router.push({ name: 'AutomationGroupNew' })
+      this.$router.push(resolveAppRoute({ name: 'AutomationGroupNew' }))
     },
     edit(id) {
       this.startEdit(id)
-      this.$router.replace({ name: 'Automations', query: { edit: id } })
+      this.$router.replace(resolveAppRoute({ name: 'Automations', query: { edit: id } }))
     },
     editGroup(id) {
-      this.$router.push({ name: 'AutomationGroupEditor', params: { id } })
+      this.$router.push(resolveAppRoute({ name: 'AutomationGroupEditor', params: { id } }))
     },
     async dryRun(id) {
       const { data } = await automationsApi.dryRun(id)

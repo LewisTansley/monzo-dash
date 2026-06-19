@@ -32,7 +32,7 @@
       </ul>
     </div>
     <template #footer>
-      <router-link to="/automations" class="history-link" @click="$emit('close')">
+      <router-link :to="automationsPath" class="history-link" @click="$emit('close')">
         View automations
       </router-link>
     </template>
@@ -47,6 +47,7 @@ import {
   runStatusClass,
   runStatusLabel
 } from '@/utils/automationRuns.js'
+import { resolveAppPath } from '@/utils/appPaths.js'
 
 export default {
   name: 'AutomationHistoryModal',
@@ -66,6 +67,11 @@ export default {
     }
   },
   emits: ['close'],
+  computed: {
+    automationsPath() {
+      return resolveAppPath('/automations')
+    }
+  },
   watch: {
     isOpen(open) {
       if (open) {

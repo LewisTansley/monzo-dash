@@ -1,0 +1,76 @@
+/**
+ * Mobile layout overrides — active when html[data-layout="mobile"].
+ */
+
+[data-layout='mobile'] {
+  --sw-titlebar-height: 48px;
+  --sw-mobile-topbar-height: calc(48px + env(safe-area-inset-top, 0px));
+  --sw-mobile-tabbar-offset: calc(56px + env(safe-area-inset-bottom, 0px));
+  --sw-applet-padding: 8px;
+  --sw-sidebar-rail-width: min(88vw, 320px);
+  --sw-mobile-drawer-width: min(88vw, 320px);
+  --sw-sidebar-panel-max: min(88vw, 320px);
+  --sw-page-edge-inset: 8px;
+  --sw-mobile-edge-peek: 32px;
+  --sw-edge-hit-sensor-width: 32px;
+}
+
+[data-layout='mobile'] .applet-shell__edge {
+  z-index: 120;
+  width: var(--sw-mobile-edge-peek, 32px);
+}
+
+[data-layout='mobile'] .applet-shell__edge .applet-shell__edge-hit {
+  opacity: 1;
+  pointer-events: auto;
+  background: rgba(var(--sw-blue-muted-rgb, 105 115 156), 0.22);
+  color: var(--sw-text-secondary, #a0aec0);
+}
+
+[data-layout='mobile'] .applet-shell__edge .applet-shell__edge-hit:active {
+  background: rgba(var(--sw-blue-muted-rgb, 105 115 156), 0.36);
+}
+
+[data-layout='mobile'] .applet-center-inner,
+[data-layout='mobile'] .dashboard-inner {
+  padding-inline: var(--sw-applet-padding);
+}
+
+[data-layout='mobile'] .automation-buttons {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+[data-layout='mobile'] .modal-overlay .modal-container {
+  max-width: 100%;
+  margin: 0;
+  border-radius: var(--sw-chrome-radius-inner, 8px) var(--sw-chrome-radius-inner, 8px) 0 0;
+  max-height: calc(100dvh - var(--sw-mobile-tabbar-offset));
+}
+
+/* Foldable: dual horizontal segments — left pane pinned */
+@media (horizontal-viewport-segments: 2) and (min-width: 640px) {
+  [data-layout='mobile'][data-fold-spanning='dual'] {
+    --sw-mobile-drawer-width: min(42vw, 320px);
+  }
+}
+
+@media (horizontal-viewport-segments: 2) and (min-width: 900px) {
+  [data-layout='mobile'][data-fold-spanning='wide'] {
+    --sw-sidebar-rail-width: 280px;
+    --sw-mobile-drawer-width: 280px;
+  }
+}
+
+@media (pointer: coarse) {
+  [data-layout='mobile'] .sw-list-row,
+  [data-layout='mobile'] .base-button,
+  [data-layout='mobile'] .nav-btn {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-layout='mobile'] .applet-shell__drawer {
+    transition: none;
+  }
+}

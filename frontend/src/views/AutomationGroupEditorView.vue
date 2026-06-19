@@ -5,7 +5,7 @@
         <div class="applet-center-inner">
     <header class="page-header">
       <h1>{{ isNew ? 'New automation group' : 'Edit automation group' }}</h1>
-      <router-link to="/automations">Back to list</router-link>
+      <router-link :to="automationsPath">Back to list</router-link>
     </header>
 
     <form class="editor-form panel" @submit.prevent="save">
@@ -115,6 +115,7 @@ import {
   autoTriggerToForm,
   autoTriggerToPayload
 } from '../utils/automationTriggerForm.js'
+import { resolveAppRoute, resolveAppPath } from '../utils/appPaths.js'
 
 function defaultForm() {
   return {
@@ -140,7 +141,11 @@ export default {
   },
   computed: {
     isNew() {
-      return this.$route.name === 'AutomationGroupNew'
+      const baseName = String(this.$route.name || '').replace(/^Mobile/, '')
+      return baseName === 'AutomationGroupNew'
+    },
+    automationsPath() {
+      return resolveAppPath('/automations')
     },
     hasDisabledMembers() {
       return this.form.automationIds.some((id) => {
@@ -242,7 +247,7 @@ export default {
         } else {
           await automationGroupsApi.update(this.$route.params.id, payload)
         }
-        this.$router.push('/automations')
+        this.$router.push(resolveAppRoute({ path: '/automations' }))
       } catch (e) {
         this.error = e.response?.data?.error || e.message
       }
@@ -255,7 +260,7 @@ export default {
         if (this.isNew) {
           const { data } = await automationGroupsApi.create(this.buildPayload())
           id = data.group.id
-          this.$router.replace({ name: 'AutomationGroupEditor', params: { id } })
+          this.$router.replace(resolveAppRoute({ name: 'AutomationGroupEditor', params: { id } }))
         } else {
           await automationGroupsApi.update(id, this.buildPayload())
         }

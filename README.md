@@ -119,8 +119,60 @@ On container start, if both files exist and headless runs are still enabled, the
 | `MONZO_REDIRECT_URI` | `http://localhost:3001/api/auth/monzo/callback` | Must match your Monzo OAuth app |
 | `VAULT_PATH` | `.vault/monzo.vault.enc` | Encrypted vault file path |
 | `FRONTEND_URL` | `http://localhost:8090` | Used for CORS and redirects |
+| `DEV_PUBLIC_HOST` | _(unset)_ | MagicDNS hostname for Tailscale HMR (e.g. `mybox.tail12345.ts.net`) |
+| `ENABLE_TAILSCALE_SERVE` | _(unset)_ | Set to `1` when using `tailscale serve` on HTTPS :443 |
+| `VUE_DEV_HMR_EXPLICIT` | _(unset)_ | Set to `1` for direct `ws://host:port/ws` HMR over tailnet without Serve |
+| `MOBILE_HOST` | _(unset)_ | Optional `m.` subdomain for mobile UI (requires split DNS) |
 
 If you change host ports, update `MONZO_REDIRECT_URI` in `.env` **and** register the same URI in your Monzo developer app.
+
+## Mobile / Tailnet access
+
+Access Monzo Dash from your phone over Tailscale without a separate mobile app. The mobile UI uses swipe-reveal sidebars and a bottom tab bar.
+
+### Bookmarks
+
+| Device | URL |
+|--------|-----|
+| Desktop (tailnet) | `https://<machine>.<tailnet>.ts.net/` |
+| Phone (path — always works) | `https://<machine>.<tailnet>.ts.net/m/` |
+| Phone (subdomain — optional) | `https://m.<machine>.<tailnet>.ts.net/` |
+
+The mobile layout activates when the hostname starts with `m.` **or** the path starts with `/m/`.
+
+### Setup
+
+1. Run the stack on the host: `./run-both.sh` or `docker compose up`.
+2. Expose the frontend over HTTPS:
+
+```bash
+chmod +x scripts/tailscale-serve.sh
+./scripts/tailscale-serve.sh
+```
+
+Or manually: `tailscale serve --bg --https=443 http://127.0.0.1:8090` (adjust port if needed).
+
+3. Optional `.env` for dev HMR on your phone:
+
+```bash
+DEV_PUBLIC_HOST=mybox.tail12345.ts.net
+ENABLE_TAILSCALE_SERVE=1
+```
+
+If HMR fails without Serve on 443, add `VUE_DEV_HMR_EXPLICIT=1`.
+
+4. **Optional `m.` subdomain:** In Tailscale admin → DNS, add split DNS so `m.<machine>.<tailnet>.ts.net` resolves to the same host. Both hostnames hit the same `tailscale serve` target.
+
+### Monzo OAuth on mobile
+
+Monzo requires redirect URI `http://localhost:3001/api/auth/monzo/callback`. Complete vault creation and **Connect Monzo** on the host machine once. After that, use the tailnet mobile URL for daily access (unlock vault on the host, or enable headless runs for Docker).
+
+### Local mobile testing
+
+- Path mobile: http://localhost:8090/m/
+- Desktop unchanged: http://localhost:8090/
+
+On Dashboard and Automations, swipe from the left or right screen edge to open sidebars.
 
 ## Quick start — Local development
 
@@ -140,6 +192,7 @@ This installs dependencies on the first run, starts the API on port 3001, and th
 | `./run-backend.sh` | API only |
 | `./run-frontend.sh` | Frontend only |
 | `./run-both.sh -s` | Skip dependency install preflight |
+| `./scripts/tailscale-serve.sh` | Expose frontend over Tailscale HTTPS (tailnet / phone access) |
 
 Copy `.env.example` to `.env` to override ports or vault path.
 

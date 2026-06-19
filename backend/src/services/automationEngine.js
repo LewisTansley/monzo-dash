@@ -71,7 +71,7 @@ export function evaluateConditions(automation, balances) {
   return { met, details: results }
 }
 
-function getFundingBalance(action, balances) {
+export function getFundingBalance(action, balances) {
   const accountId = getVaultData().monzo.accountId
   if (action.type === 'deposit') {
     const sourceKey = `${action.source?.type}:${action.source?.id}`
@@ -83,6 +83,17 @@ function getFundingBalance(action, balances) {
   }
   const sourceKey = `${action.source.type}:${action.source.id}`
   return balances[sourceKey] ?? 0
+}
+
+async function resolveLiveFundingBalance(action) {
+  const accountId = getVaultData().monzo.accountId
+  if (action.type === 'deposit') {
+    const bal = await getBalance(accountId)
+    return bal.balance || 0
+  }
+  const potsRes = await getPots(accountId)
+  const pot = (potsRes.pots || []).find((p) => p.id === action.source.id)
+  return pot?.balance ?? 0
 }
 
 function isPotLtCondition(d, potId) {
@@ -353,7 +364,9 @@ export async function runAutomation(automationId, options = {}) {
   if (!automation) throw new Error('Automation not found')
   if (!automation.enabled) throw new Error('Automation is disabled')
 
-  const preview = await dryRunAutomation(automationId)
+  const preview = await dryRunAutomation(automationId, {
+    balances: options.balances || null
+  })
   if (!preview.conditionsMet) {
     const runRecord = {
       at: new Date().toISOString(),
@@ -375,12 +388,21 @@ export async function runAutomation(automationId, options = {}) {
     }
   }
 
-  const amount = preview.transferAmount
+  let amount = preview.transferAmount
+  const { action } = automation
+  const liveFunding = await resolveLiveFundingBalance(action)
+  if (amount > liveFunding) {
+    amount = liveFunding
+  }
+
   if (amount <= 0) {
     const runRecord = {
       at: new Date().toISOString(),
       status: 'skipped',
-      message: 'Transfer amount is zero',
+      message:
+        preview.transferAmount > 0
+          ? 'Insufficient available balance for transfer'
+          : 'Transfer amount is zero',
       source
     }
     recordAutomationRun(automationId, runRecord)
@@ -390,7 +412,8 @@ export async function runAutomation(automationId, options = {}) {
     return {
       status: 'skipped',
       message: runRecord.message,
-      ...preview
+      ...preview,
+      transferAmount: amount
     }
   }
 
@@ -401,24 +424,24 @@ export async function runAutomation(automationId, options = {}) {
     automation.autoTrigger,
     vault.automationTriggerState?.[automationId],
     now,
-    config.autoTriggerTimezone
+    config.autoTriggerTimezone,
+    source
   )
-  const { action } = automation
-
+  const transferAmount = Math.round(amount)
   try {
     let result
     if (action.type === 'deposit') {
       const potId = action.destination.id
       result = await depositToPot(potId, {
         sourceAccountId: accountId,
-        amount,
+        amount: transferAmount,
         dedupeId
       })
     } else if (action.type === 'withdraw') {
       const potId = action.source.id
       result = await withdrawFromPot(potId, {
         destinationAccountId: accountId,
-        amount,
+        amount: transferAmount,
         dedupeId
       })
     } else {
@@ -428,7 +451,7 @@ export async function runAutomation(automationId, options = {}) {
     const runRecord = {
       at: new Date().toISOString(),
       status: 'success',
-      amount,
+      amount: transferAmount,
       dedupeId,
       source
     }
@@ -442,7 +465,7 @@ export async function runAutomation(automationId, options = {}) {
 
     return {
       status: 'success',
-      amount,
+      amount: transferAmount,
       result,
       ...preview
     }
@@ -450,7 +473,7 @@ export async function runAutomation(automationId, options = {}) {
     const runRecord = {
       at: new Date().toISOString(),
       status: 'error',
-      message: err.message,
+      message: err.message || 'Transfer failed',
       source
     }
     recordAutomationRun(automationId, runRecord)
@@ -462,7 +485,7 @@ export async function runAutomation(automationId, options = {}) {
     }
     return {
       status: 'error',
-      message: err.message,
+      message: err.message || 'Transfer failed',
       ...preview
     }
   }
