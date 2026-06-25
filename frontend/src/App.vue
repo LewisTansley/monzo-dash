@@ -9,22 +9,32 @@
         </div>
       </div>
     </main>
+    <VaultLockOverlay :is-open="showUnlockModal" />
   </div>
 </template>
 
 <script>
+import { computed } from 'vue'
 import TitleBar from '@/components/TitleBar.vue'
 import MobileChrome from '@/components/MobileChrome.vue'
+import VaultLockOverlay from '@/components/vault/VaultLockOverlay.vue'
 import { useLayoutStore } from '@/stores/layout.js'
+import { useVaultStore } from '@/stores/vault.js'
 import { useLayoutMode } from '@/composables/useLayoutMode.js'
+import { useInactivityLock } from '@/composables/useInactivityLock.js'
 
 export default {
   name: 'App',
-  components: { TitleBar, MobileChrome },
+  components: { TitleBar, MobileChrome, VaultLockOverlay },
   setup() {
     useLayoutMode()
+    useInactivityLock()
     const layoutStore = useLayoutStore()
-    return { layoutStore }
+    const vault = useVaultStore()
+    const showUnlockModal = computed(
+      () => vault.unlocked && !vault.uiUnlocked
+    )
+    return { layoutStore, showUnlockModal }
   }
 }
 </script>

@@ -2,9 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { config } from '../config.js'
-
-const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }
-const VAULT_VERSION = 1
+import { encryptJson, decryptJson } from './vaultCrypto.js'
 
 let sessionPassphrase = null
 let sessionData = null
@@ -29,10 +27,24 @@ function migrateBudgetData(vault) {
   return migrated
 }
 
+export const FRONTEND_INACTIVITY_TIMEOUT_OPTIONS = [1, 3, 5, 10, 15]
+
 export function defaultVaultSettings() {
   return {
-    allowHeadlessRuns: false
+    allowHeadlessRuns: false,
+    frontendInactivityTimeoutMinutes: null
   }
+}
+
+export function normalizeFrontendInactivityTimeout(value) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const minutes = Number(value)
+  if (!Number.isInteger(minutes) || !FRONTEND_INACTIVITY_TIMEOUT_OPTIONS.includes(minutes)) {
+    return null
+  }
+  return minutes
 }
 
 export function migrateVaultSettings(settings = {}) {
@@ -44,6 +56,9 @@ export function migrateVaultSettings(settings = {}) {
     next.allowHeadlessRuns = true
   }
   delete next.autoUnlockOnStartup
+  next.frontendInactivityTimeoutMinutes = normalizeFrontendInactivityTimeout(
+    next.frontendInactivityTimeoutMinutes
+  )
   return next
 }
 
@@ -165,7 +180,9 @@ export function defaultVaultPayload() {
       refreshToken: '',
       expiresAt: 0,
       accountId: '',
-      userId: ''
+      userId: '',
+      accountCreatedAt: '',
+      historyStartMonth: ''
     },
     settings: defaultVaultSettings(),
     automations: [],
@@ -176,41 +193,21 @@ export function defaultVaultPayload() {
     automationTriggerState: {},
     automationGroupTriggerState: {},
     automationActivityLog: [],
-    budget: { items: [] }
+    budget: { items: [] },
+    forecast: { savingsPotId: null }
   }
-}
-
-function deriveKey(passphrase, salt) {
-  return crypto.scryptSync(passphrase, salt, 32, SCRYPT_OPTIONS)
 }
 
 function encryptPayload(payload, passphrase) {
-  const salt = crypto.randomBytes(16)
-  const iv = crypto.randomBytes(12)
-  const key = deriveKey(passphrase, salt)
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
-  const plaintext = Buffer.from(JSON.stringify(payload), 'utf8')
-  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()])
-  const tag = cipher.getAuthTag()
-  return {
-    version: VAULT_VERSION,
-    salt: salt.toString('base64'),
-    iv: iv.toString('base64'),
-    tag: tag.toString('base64'),
-    ciphertext: encrypted.toString('base64')
-  }
+  return encryptJson(payload, passphrase)
 }
 
 function decryptEnvelope(envelope, passphrase) {
-  const salt = Buffer.from(envelope.salt, 'base64')
-  const iv = Buffer.from(envelope.iv, 'base64')
-  const tag = Buffer.from(envelope.tag, 'base64')
-  const ciphertext = Buffer.from(envelope.ciphertext, 'base64')
-  const key = deriveKey(passphrase, salt)
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv)
-  decipher.setAuthTag(tag)
-  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()])
-  return JSON.parse(decrypted.toString('utf8'))
+  return decryptJson(envelope, passphrase)
+}
+
+export function getSessionPassphrase() {
+  return sessionPassphrase
 }
 
 export function vaultExists() {
@@ -257,6 +254,7 @@ export function unlockVault(passphrase) {
     monzo: { ...defaults.monzo, ...(payload.monzo || {}) },
     settings: migrateVaultSettings(payload.settings || {}),
     budgets: payload.budgets || defaults.budgets,
+    forecast: { ...defaults.forecast, ...(payload.forecast || {}) },
     automationRuns: payload.automationRuns || defaults.automationRuns,
     automationGroupRuns: payload.automationGroupRuns || defaults.automationGroupRuns,
     automationTriggerState:
@@ -278,7 +276,25 @@ export function unlockVault(passphrase) {
   if (migrateBudgetData(sessionData)) {
     saveVault()
   }
+  queueMicrotask(() => {
+    import('./historicalSync.js')
+      .then(({ maybeStartHistoricalSyncOnUnlock }) => maybeStartHistoricalSyncOnUnlock())
+      .catch(() => {})
+  })
   return { unlocked: true }
+}
+
+export function verifyPassphrase(passphrase) {
+  if (!vaultExists()) {
+    throw new Error('Vault does not exist')
+  }
+  if (!passphrase) {
+    throw new Error('Passphrase required')
+  }
+  const raw = fs.readFileSync(config.vaultPath, 'utf8')
+  const envelope = JSON.parse(raw)
+  decryptEnvelope(envelope, passphrase)
+  return { ok: true }
 }
 
 export function lockVault() {
@@ -310,6 +326,8 @@ export function getVaultStatus() {
     exists: vaultExists(),
     unlocked: isUnlocked(),
     allowHeadlessRuns: settings?.allowHeadlessRuns === true,
+    frontendInactivityTimeoutMinutes:
+      settings?.frontendInactivityTimeoutMinutes ?? null,
     headlessSessionStored: headlessSessionStored(),
     hasMonzoCredentials: Boolean(
       sessionData?.monzo?.clientId?.trim() &&

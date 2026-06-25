@@ -76,7 +76,9 @@ export function formToPayload(form, accountId) {
     action.source = { type: 'account', id: accountId }
     action.destination = { type: 'pot', id: action.destination.id }
   } else {
-    action.source = { type: 'pot', id: action.source.id }
+    const potId = action.source?.id
+    const validPotId = potId && potId !== accountId ? potId : ''
+    action.source = { type: 'pot', id: validPotId }
     action.destination = { type: 'account', id: accountId }
   }
 
@@ -89,4 +91,76 @@ export function formToPayload(form, accountId) {
     action,
     autoTrigger: autoTriggerToPayload(form.autoTrigger)
   }
+}
+
+function isGtOperator(op) {
+  return op === 'gt' || op === 'gte'
+}
+
+function isLtOperator(op) {
+  return op === 'lt' || op === 'lte'
+}
+
+function findUnambiguousPotCondition(conditions, operatorKind) {
+  const filtered = (conditions || []).filter((c) => {
+    if (c.source?.type !== 'pot') return false
+    if (operatorKind === 'gt') return isGtOperator(c.operator)
+    if (operatorKind === 'lt') return isLtOperator(c.operator)
+    return false
+  })
+  if (filtered.length === 1) return filtered[0]
+  return null
+}
+
+export function syncRemainderAction(form, pots, accountId) {
+  const mode = form.action?.amount?.mode
+  if (mode !== 'remainder' && mode !== 'remainder_below') return
+
+  const operatorKind = mode === 'remainder' ? 'gt' : 'lt'
+  const cond = findUnambiguousPotCondition(form.conditions, operatorKind)
+  if (!cond) return
+
+  if (mode === 'remainder') {
+    form.action.type = 'withdraw'
+    form.action.source = { type: 'pot', id: cond.source.id }
+    form.action.destination = { type: 'account', id: accountId }
+  } else {
+    form.action.type = 'deposit'
+    form.action.source = { type: 'account', id: accountId }
+    if (!form.action.destination) {
+      form.action.destination = { type: 'pot', id: '' }
+    }
+    form.action.destination.id = cond.source.id
+  }
+}
+
+export function ensureWithdrawSourcePot(form, pots) {
+  if (form.action.type !== 'withdraw') return
+  const sourceId = form.action.source?.id
+  const isPotId = pots.some((p) => p.id === sourceId)
+  if (!isPotId && pots[0]) {
+    form.action.source = { type: 'pot', id: pots[0].id }
+  }
+}
+
+export function ensureDepositDestinationPot(form, pots) {
+  if (form.action.type !== 'deposit') return
+  const destId = form.action.destination?.id
+  const isPotId = pots.some((p) => p.id === destId)
+  if (!isPotId && pots[0]) {
+    if (!form.action.destination) {
+      form.action.destination = { type: 'pot', id: '' }
+    }
+    form.action.destination.id = pots[0].id
+  }
+}
+
+export function onActionTypeChange(form, pots, accountId) {
+  if (form.action.type === 'withdraw') {
+    ensureWithdrawSourcePot(form, pots)
+  } else {
+    ensureDepositDestinationPot(form, pots)
+    form.action.source = { type: 'account', id: accountId }
+  }
+  syncRemainderAction(form, pots, accountId)
 }

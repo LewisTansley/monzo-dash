@@ -13,6 +13,7 @@ export const vaultApi = {
     api.post('/vault/init', { passphrase, ...options }),
   unlock: (passphrase, options = {}) =>
     api.post('/vault/unlock', { passphrase, ...options }),
+  verify: (passphrase) => api.post('/vault/verify', { passphrase }),
   lock: () => api.post('/vault/lock'),
   getMonzoCredentials: () => api.get('/vault/monzo-credentials'),
   getMonzoSetup: () => api.get('/vault/monzo-setup'),
@@ -36,12 +37,20 @@ export const monzoApi = {
   pots: () => api.get('/monzo/pots'),
   transactions: (params) => api.get('/monzo/transactions', { params }),
   transactionMonth: (month) =>
-    api.get('/monzo/transactions', { params: month ? { month } : {} })
+    api.get('/monzo/transactions', { params: month ? { month } : {} }),
+  transactionSyncStatus: () => api.get('/monzo/transactions/sync-status'),
+  startTransactionSync: () => api.post('/monzo/transactions/sync')
 }
 
 export const analyticsApi = {
   summary: (period) => api.get('/analytics/summary', { params: { period } }),
-  projections: () => api.get('/analytics/projections')
+  projections: () => api.get('/analytics/projections'),
+  forecast: () => api.get('/analytics/forecast')
+}
+
+export const forecastSettingsApi = {
+  get: () => api.get('/forecast/settings'),
+  set: ({ savingsPotId }) => api.put('/forecast/settings', { savingsPotId })
 }
 
 export const automationsApi = {

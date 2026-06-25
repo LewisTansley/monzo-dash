@@ -2,6 +2,17 @@ import { config } from '../config.js'
 import { annotatePotTransfers } from './potTransfers.js'
 import { deduplicateTransactionsById } from './transactionUtils.js'
 import { getVaultData, updateVault } from './vault.js'
+import { getMonth, hasMonth, upsertMonth } from './transactionCache.js'
+import { isHistoricalSyncRunning } from './historicalSync.js'
+import {
+  currentMonthKey,
+  parseMonthKey,
+  formatMonthLabel,
+  previousMonthKey,
+  isCurrentMonth,
+  formatMonthKey
+} from './monthUtils.js'
+import { isBeforeAccountStart, isRequiredMonth, monthHasCoverage } from './cacheCoverage.js'
 
 function monzoErrorMessage(data, status) {
   const message =
@@ -31,80 +42,106 @@ export function isVerificationRequired(err) {
   return /verification.?required/i.test(msg) || /verification.?required/i.test(code)
 }
 
-async function monzoFormRequest(path, body, accessToken) {
-  const params = new URLSearchParams(body)
-  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' }
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`
-  }
-  const res = await fetch(`${config.monzoApiBase}${path}`, {
-    method: 'POST',
-    headers,
-    body: params.toString()
-  })
-  const text = await res.text()
-  let data = {}
+const TRANSIENT_RETRY_DELAY_MS = 300
+
+function isTransientFetchError(err) {
+  if (!err || err.status) return false
+  const msg = String(err.message || '')
+  if (msg === 'fetch failed' || msg === 'Network Error') return true
+  const code = err.cause?.code
+  return code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ENOTFOUND'
+}
+
+async function withTransientRetry(operation) {
   try {
-    data = text ? JSON.parse(text) : {}
-  } catch {
-    data = { raw: text }
+    return await operation()
+  } catch (err) {
+    if (!isTransientFetchError(err)) throw err
+    await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS))
+    return operation()
   }
-  if (!res.ok) {
-    const err = new Error(monzoErrorMessage(data, res.status))
-    err.status = res.status
-    err.data = data
-    throw err
-  }
-  return data
+}
+
+async function monzoFormRequest(path, body, accessToken) {
+  return withTransientRetry(async () => {
+    const params = new URLSearchParams(body)
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' }
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`
+    }
+    const res = await fetch(`${config.monzoApiBase}${path}`, {
+      method: 'POST',
+      headers,
+      body: params.toString()
+    })
+    const text = await res.text()
+    let data = {}
+    try {
+      data = text ? JSON.parse(text) : {}
+    } catch {
+      data = { raw: text }
+    }
+    if (!res.ok) {
+      const err = new Error(monzoErrorMessage(data, res.status))
+      err.status = res.status
+      err.data = data
+      throw err
+    }
+    return data
+  })
 }
 
 async function monzoGet(path, accessToken, query = {}) {
-  const qs = new URLSearchParams(query)
-  const url = `${config.monzoApiBase}${path}${qs.toString() ? `?${qs}` : ''}`
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` }
+  return withTransientRetry(async () => {
+    const qs = new URLSearchParams(query)
+    const url = `${config.monzoApiBase}${path}${qs.toString() ? `?${qs}` : ''}`
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    })
+    const text = await res.text()
+    let data = {}
+    try {
+      data = text ? JSON.parse(text) : {}
+    } catch {
+      data = { raw: text }
+    }
+    if (!res.ok) {
+      const err = new Error(monzoErrorMessage(data, res.status))
+      err.status = res.status
+      err.data = data
+      if (isVerificationRequired(err)) err.code = 'VERIFICATION_REQUIRED'
+      throw err
+    }
+    return data
   })
-  const text = await res.text()
-  let data = {}
-  try {
-    data = text ? JSON.parse(text) : {}
-  } catch {
-    data = { raw: text }
-  }
-  if (!res.ok) {
-    const err = new Error(monzoErrorMessage(data, res.status))
-    err.status = res.status
-    err.data = data
-    if (isVerificationRequired(err)) err.code = 'VERIFICATION_REQUIRED'
-    throw err
-  }
-  return data
 }
 
 async function monzoPut(path, body, accessToken) {
-  const params = new URLSearchParams(body)
-  const res = await fetch(`${config.monzoApiBase}${path}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: params.toString()
+  return withTransientRetry(async () => {
+    const params = new URLSearchParams(body)
+    const res = await fetch(`${config.monzoApiBase}${path}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    })
+    const text = await res.text()
+    let data = {}
+    try {
+      data = text ? JSON.parse(text) : {}
+    } catch {
+      data = { raw: text }
+    }
+    if (!res.ok) {
+      const err = new Error(monzoErrorMessage(data, res.status))
+      err.status = res.status
+      err.data = data
+      throw err
+    }
+    return data
   })
-  const text = await res.text()
-  let data = {}
-  try {
-    data = text ? JSON.parse(text) : {}
-  } catch {
-    data = { raw: text }
-  }
-  if (!res.ok) {
-    const err = new Error(monzoErrorMessage(data, res.status))
-    err.status = res.status
-    err.data = data
-    throw err
-  }
-  return data
 }
 
 function waitingApprovalError(message) {
@@ -113,7 +150,9 @@ function waitingApprovalError(message) {
   return err
 }
 
-export async function refreshAccessToken() {
+let refreshInFlight = null
+
+async function performTokenRefresh() {
   const vault = getVaultData()
   const { clientId, clientSecret, refreshToken } = vault.monzo
   if (!refreshToken) throw new Error('Not connected to Monzo')
@@ -132,6 +171,16 @@ export async function refreshAccessToken() {
   })
 
   return data.access_token
+}
+
+export async function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = performTokenRefresh().finally(() => {
+    refreshInFlight = null
+  })
+
+  return refreshInFlight
 }
 
 export async function getAccessToken({ allowRefresh = true } = {}) {
@@ -192,10 +241,33 @@ function pickAccountId(accountsList) {
   const preferred = ['uk_retail', 'uk_retail_joint']
   for (const type of preferred) {
     const acc = accountsList.find((a) => a.type === type)
-    if (acc) return { id: acc.id, type: acc.type }
+    if (acc) return { id: acc.id, type: acc.type, created: acc.created || '' }
   }
   if (accountsList[0]) {
-    return { id: accountsList[0].id, type: accountsList[0].type }
+    return {
+      id: accountsList[0].id,
+      type: accountsList[0].type,
+      created: accountsList[0].created || ''
+    }
+  }
+  return null
+}
+
+/** Persist account open date when missing (e.g. vaults linked before this field existed). */
+export async function ensureAccountCreatedAt() {
+  const vault = getVaultData()
+  if (vault.monzo.accountCreatedAt?.trim()) {
+    return vault.monzo.accountCreatedAt
+  }
+
+  const token = await getAccessToken()
+  const accounts = await monzoGet('/accounts', token)
+  const picked = pickAccountId(accounts.accounts || [])
+  if (picked?.created) {
+    updateVault((v) => {
+      v.monzo.accountCreatedAt = picked.created
+    })
+    return picked.created
   }
   return null
 }
@@ -301,6 +373,9 @@ export async function ensureMonzoAccountLinked({
       const picked = await fetchRetailAccountId(token)
       updateVault((v) => {
         v.monzo.accountId = picked.id
+        if (picked.created) {
+          v.monzo.accountCreatedAt = picked.created
+        }
       })
       return picked.id
     } catch (err) {
@@ -344,6 +419,8 @@ export async function exchangeAuthCode(code) {
       maxAttempts: 18,
       delayMs: 5000
     })
+    const { startHistoricalSync } = await import('./historicalSync.js')
+    startHistoricalSync({ trigger: 'oauth' })
     return { accountId, userId: data.user_id, fullyLinked: true }
   } catch (err) {
     return {
@@ -377,7 +454,7 @@ export async function getTransactions({ accountId, since, before, limit = 100 } 
 }
 
 const FEED_VERIFICATION_MESSAGE =
-  'Older transactions require approval in the Monzo app.'
+  'This month is not in the local transaction cache. Sync history in Settings or reconnect Monzo.'
 
 function sortTransactionsDesc(transactions) {
   return [...transactions].sort(
@@ -385,41 +462,62 @@ function sortTransactionsDesc(transactions) {
   )
 }
 
-function currentMonthKey() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  return `${year}-${month}`
+function computeFeedPagination(year, monthIndex, liveBlocked) {
+  const nextMonth = previousMonthKey(year, monthIndex)
+  if (!nextMonth) {
+    return { hasMore: false, nextMonth: null }
+  }
+  if (isBeforeAccountStart(nextMonth)) {
+    return { hasMore: false, nextMonth: null }
+  }
+  if (monthHasCoverage(nextMonth, liveBlocked)) {
+    return { hasMore: true, nextMonth }
+  }
+  return { hasMore: false, nextMonth: null }
 }
 
-function parseMonthKey(monthKey) {
-  const match = /^(\d{4})-(\d{2})$/.exec(monthKey || '')
-  if (!match) return null
-  const year = Number(match[1])
-  const month = Number(match[2]) - 1
-  if (month < 0 || month > 11) return null
-  return { year, month }
+function cachedMonthTransactions(monthKey) {
+  const cached = getMonth(monthKey)
+  if (!cached) return null
+  return cached.transactions || []
 }
 
-function formatMonthKey(year, month) {
-  return `${year}-${String(month + 1).padStart(2, '0')}`
-}
+/** Fetch month transactions from Monzo, falling back to encrypted cache. */
+export async function fetchMonthTransactionsWithCache(accountId, year, month) {
+  const monthKey = formatMonthKey(year, month)
+  const completedMonth = !isCurrentMonth(year, month)
 
-function formatMonthLabel(year, month) {
-  return new Date(year, month, 1).toLocaleDateString('en-GB', {
-    month: 'long',
-    year: 'numeric'
-  })
-}
+  if (isBeforeAccountStart(monthKey)) {
+    return { transactions: [], fromCache: true, monthKey }
+  }
 
-function previousMonthKey(year, month) {
-  if (month === 0) return formatMonthKey(year - 1, 11)
-  return formatMonthKey(year, month - 1)
-}
+  if (hasMonth(monthKey)) {
+    const transactions = cachedMonthTransactions(monthKey)
+    return { transactions: transactions ?? [], fromCache: true, monthKey }
+  }
 
-function isCurrentMonth(year, month) {
-  const now = new Date()
-  return year === now.getFullYear() && month === now.getMonth()
+  if (!isRequiredMonth(monthKey)) {
+    return { transactions: [], fromCache: true, monthKey }
+  }
+
+  try {
+    const transactions = await fetchTransactionsForMonth(accountId, year, month)
+    if (!completedMonth) {
+      upsertMonth(monthKey, transactions)
+    }
+    return { transactions, fromCache: false, monthKey }
+  } catch (err) {
+    if (completedMonth) {
+      const transactions = cachedMonthTransactions(monthKey)
+      if (transactions !== null) {
+        return { transactions, fromCache: true, monthKey }
+      }
+    } else if (isVerificationRequired(err) && hasMonth(monthKey)) {
+      const transactions = cachedMonthTransactions(monthKey)
+      return { transactions: transactions || [], fromCache: true, monthKey }
+    }
+    throw err
+  }
 }
 
 /** Fetch all transactions in a calendar month (newest first). */
@@ -463,35 +561,77 @@ export async function getTransactionMonthFeed({ accountId, month = null } = {}) 
   }
 
   const { year, month: monthIndex } = parsed
+  const id = accountId || getVaultData().monzo.accountId
+  const syncInProgress = isHistoricalSyncRunning()
 
   try {
-    const id = accountId || getVaultData().monzo.accountId
-    const [transactions, potsRes] = await Promise.all([
-      fetchTransactionsForMonth(accountId, year, monthIndex),
-      getPots(id).catch(() => ({ pots: [] }))
-    ])
+    let transactions
+    let fromCache = false
+    let liveBlocked = false
+
+    try {
+      const result = await fetchMonthTransactionsWithCache(accountId, year, monthIndex)
+      transactions = result.transactions
+      fromCache = result.fromCache
+    } catch (err) {
+      if (isVerificationRequired(err)) {
+        liveBlocked = true
+        const cached = getMonth(monthKey)
+        if (cached || hasMonth(monthKey)) {
+          transactions = cached?.transactions || []
+          fromCache = true
+        } else {
+          const { hasMore, nextMonth } = computeFeedPagination(year, monthIndex, true)
+          const blockingGap = !hasMore && isRequiredMonth(monthKey) && !hasMonth(monthKey)
+          return {
+            month: monthKey,
+            monthLabel: formatMonthLabel(year, monthIndex),
+            transactions: [],
+            hasMore,
+            nextMonth,
+            verificationRequired: blockingGap,
+            cacheGap: blockingGap,
+            fromCache: false,
+            syncInProgress,
+            message: blockingGap ? FEED_VERIFICATION_MESSAGE : null
+          }
+        }
+      } else {
+        throw err
+      }
+    }
+
+    const potsRes = await getPots(id).catch(() => ({ pots: [] }))
     const annotated = annotatePotTransfers(transactions, potsRes.pots || [])
-    const nextMonth = previousMonthKey(year, monthIndex)
+    const { hasMore, nextMonth } = computeFeedPagination(year, monthIndex, liveBlocked)
 
     return {
       month: monthKey,
       monthLabel: formatMonthLabel(year, monthIndex),
       transactions: annotated,
-      hasMore: Boolean(nextMonth),
+      hasMore,
       nextMonth,
       verificationRequired: false,
+      cacheGap: false,
+      fromCache,
+      syncInProgress,
       message: null
     }
   } catch (err) {
     if (isVerificationRequired(err)) {
+      const { hasMore, nextMonth } = computeFeedPagination(year, monthIndex, true)
+      const blockingGap = !hasMore && isRequiredMonth(monthKey) && !hasMonth(monthKey)
       return {
         month: monthKey,
         monthLabel: formatMonthLabel(year, monthIndex),
         transactions: [],
-        hasMore: false,
-        nextMonth: null,
-        verificationRequired: true,
-        message: FEED_VERIFICATION_MESSAGE
+        hasMore,
+        nextMonth,
+        verificationRequired: blockingGap,
+        cacheGap: blockingGap,
+        fromCache: false,
+        syncInProgress,
+        message: blockingGap ? FEED_VERIFICATION_MESSAGE : null
       }
     }
     throw err

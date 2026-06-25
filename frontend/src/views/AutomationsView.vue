@@ -232,6 +232,7 @@ import {
 import { useVaultStore } from '../stores/vault.js'
 import { resolveAppRoute } from '../utils/appPaths.js'
 import { useLayoutStore } from '../stores/layout.js'
+import { useDataStatusStore } from '../stores/dataStatus.js'
 
 export default {
   name: 'AutomationsView',
@@ -274,6 +275,9 @@ export default {
     }
   },
   computed: {
+    dataStatus() {
+      return useDataStatusStore()
+    },
     selectedAutomation() {
       if (this.selectedKind !== 'automation') return null
       return this.automations.find((a) => a.id === this.selectedId) || null
@@ -340,6 +344,11 @@ export default {
     }
   },
   watch: {
+    'dataStatus.refreshGeneration'() {
+      if (this.dataStatus.refreshing) {
+        this.handleAppRefresh()
+      }
+    },
     '$route.query.edit': {
       immediate: false,
       handler(edit) {
@@ -442,6 +451,13 @@ export default {
         this.error = e.response?.data?.error || e.message
       } finally {
         this.loading = false
+      }
+    },
+    async handleAppRefresh() {
+      try {
+        await this.load()
+      } finally {
+        this.dataStatus.finishRefresh()
       }
     },
     async startNewEdit() {

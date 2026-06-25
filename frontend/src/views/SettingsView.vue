@@ -35,6 +35,9 @@
                 </BaseButton>
               </form>
             </template>
+            <template v-else-if="!vault.uiUnlocked">
+              <p class="sw-secondary">Dashboard is locked. Use the unlock screen to continue.</p>
+            </template>
             <template v-else>
               <p class="sw-secondary">Vault is unlocked.</p>
               <label class="checkbox">
@@ -50,10 +53,34 @@
                 <span v-if="headlessSessionStored">Encrypted session saved for container restarts.</span>
                 <span v-else>Unlock again with this option enabled to persist across restarts.</span>
               </p>
+              <label class="timeout-label">
+                Auto-lock dashboard after inactivity
+                <select
+                  v-model="frontendInactivityTimeout"
+                  :disabled="settingsSaving"
+                  @change="saveSettings">
+                  <option value="">Never</option>
+                  <option value="1">1 minute</option>
+                  <option value="3">3 minutes</option>
+                  <option value="5">5 minutes</option>
+                  <option value="10">10 minutes</option>
+                  <option value="15">15 minutes</option>
+                </select>
+              </label>
+              <p class="sw-muted secret-hint">
+                Locks the dashboard UI only. Background automations keep running when headless runs
+                are enabled.
+              </p>
+              <div class="btn-row">
+                <BaseButton variant="secondary" @click="lockDashboard">Lock dashboard</BaseButton>
+              </div>
+              <p class="sw-muted secret-hint">
+                Locks the dashboard on this device. Automations are unaffected.
+              </p>
             </template>
           </section>
 
-          <template v-if="vault.unlocked">
+          <template v-if="vault.isAccessible">
             <section v-show="activeSection === 'monzo'" class="sw-form-section">
               <h2 class="sw-section-title">Monzo API credentials</h2>
               <p class="sw-secondary">
@@ -98,6 +125,31 @@
                 <li>Click <strong>Finish connection</strong> below</li>
               </ol>
               <p v-if="finishingSetup" class="sw-secondary">{{ finishStatus }}</p>
+              <p v-if="syncStatus.running" class="sw-secondary sync-banner">
+                Syncing transaction history… {{ syncStatus.monthsSynced }} month(s) cached so far.
+              </p>
+              <p
+                v-else-if="vault.isMonzoConnected && syncStatus.cachedMonthCount === 0 && syncStatus.status !== 'completed'"
+                class="sw-secondary warn">
+                No transaction history cached yet. Use <strong>Sync history</strong> below, or reconnect
+                Monzo to backfill older transactions (available briefly after sign-in).
+              </p>
+              <p v-else-if="syncStatus.status === 'completed' && syncStatus.cachedMonthCount > 0" class="sw-secondary">
+                Transaction history cached: {{ syncStatus.cachedMonthCount }} month(s)
+                <span v-if="syncStatus.oldestCachedMonth"> back to {{ syncStatus.oldestCachedMonth }}</span>.
+              </p>
+              <p
+                v-if="vault.isMonzoConnected && syncStatus.missingRequiredMonths?.length"
+                class="sw-secondary warn">
+                Missing cached months:
+                {{ syncStatus.missingRequiredMonths.join(', ') }}.
+                Sync history while Monzo app access is active to backfill.
+              </p>
+              <p
+                v-if="vault.isMonzoConnected && syncStatus.stoppedReason === 'verification_required'"
+                class="sw-secondary warn">
+                Sync stopped — approve access in the Monzo app, then sync again.
+              </p>
               <p v-if="diagnosisHint" class="sw-secondary warn">{{ diagnosisHint }}</p>
               <div class="btn-row">
                 <BaseButton
@@ -111,8 +163,18 @@
                   @click="finishConnection">
                   {{ finishingSetup ? 'Waiting for approval…' : 'Finish connection' }}
                 </BaseButton>
-                <BaseButton variant="secondary" @click="lockVault">Lock vault</BaseButton>
+                <BaseButton
+                  v-if="vault.isMonzoConnected"
+                  variant="secondary"
+                  :disabled="syncStatus.running || syncStarting"
+                  @click="startSyncHistory">
+                  {{ syncStatus.running || syncStarting ? 'Syncing history…' : 'Sync history' }}
+                </BaseButton>
               </div>
+              <p v-if="vault.isMonzoConnected" class="sw-muted secret-hint">
+                Fetches older transactions from Monzo into the local cache. Works best shortly after
+                connecting or approving access in the Monzo app.
+              </p>
             </section>
           </template>
         </div>
@@ -124,7 +186,8 @@
 <script>
 import { AppletShell, BaseButton, SectionNavBar } from '../components/common'
 import { useVaultStore } from '../stores/vault.js'
-import { vaultApi, authApi, settingsApi } from '../services/api.js'
+import { vaultApi, authApi, settingsApi, monzoApi } from '../services/api.js'
+import { useDataStatusStore } from '../stores/dataStatus.js'
 
 export default {
   name: 'SettingsView',
@@ -132,10 +195,6 @@ export default {
   data() {
     return {
       activeSection: 'vault',
-      sectionTabs: [
-        { id: 'vault', label: 'Vault' },
-        { id: 'monzo', label: 'Monzo' }
-      ],
       passphrase: '',
       clientId: '',
       clientSecret: '',
@@ -147,13 +206,35 @@ export default {
       finishStatus: '',
       diagnosisHint: '',
       allowHeadlessRuns: false,
+      frontendInactivityTimeout: '',
       headlessSessionStored: false,
-      settingsSaving: false
+      settingsSaving: false,
+      syncStatus: {
+        status: 'idle',
+        running: false,
+        monthsSynced: 0,
+        cachedMonthCount: 0,
+        oldestCachedMonth: null,
+        missingRequiredMonths: [],
+        stoppedReason: null
+      },
+      syncStarting: false,
+      syncPollTimer: null
     }
   },
   computed: {
     vault() {
       return useVaultStore()
+    },
+    sectionTabs() {
+      const tabs = [{ id: 'vault', label: 'Vault' }]
+      if (this.vault.isAccessible) {
+        tabs.push({ id: 'monzo', label: 'Monzo' })
+      }
+      return tabs
+    },
+    dataStatus() {
+      return useDataStatusStore()
     }
   },
   async mounted() {
@@ -169,6 +250,8 @@ export default {
         await this.finishConnection()
       } else if (this.vault.isMonzoConnected) {
         this.message = 'Monzo connected successfully.'
+        await this.loadSyncStatus()
+        this.startSyncPolling()
       }
       this.$router.replace({ query: {} })
     }
@@ -177,10 +260,31 @@ export default {
     }
     if (this.vault.unlocked) {
       await this.loadSettings()
-      await this.loadMonzoSetup()
-      await this.loadCredentials()
-      if (this.vault.hasMonzoTokens && !this.vault.isMonzoConnected) {
-        await this.loadDiagnosis()
+      if (this.vault.uiUnlocked) {
+        await this.loadMonzoSetup()
+        await this.loadCredentials()
+        if (this.vault.hasMonzoTokens && !this.vault.isMonzoConnected) {
+          await this.loadDiagnosis()
+        }
+        if (this.vault.isMonzoConnected) {
+          await this.loadSyncStatus()
+          this.startSyncPolling()
+        }
+      }
+    }
+  },
+  beforeUnmount() {
+    this.stopSyncPolling()
+  },
+  watch: {
+    'dataStatus.refreshGeneration'() {
+      if (this.dataStatus.refreshing) {
+        this.handleAppRefresh()
+      }
+    },
+    'vault.uiUnlocked'(unlocked) {
+      if (!unlocked && this.activeSection === 'monzo') {
+        this.activeSection = 'vault'
       }
     }
   },
@@ -219,6 +323,11 @@ export default {
           data.settings?.allowHeadlessRuns ?? data.settings?.autoUnlockOnStartup
         )
         this.headlessSessionStored = Boolean(data.headlessSessionStored)
+        const timeout = data.settings?.frontendInactivityTimeoutMinutes
+        this.frontendInactivityTimeout =
+          timeout === null || timeout === undefined ? '' : String(timeout)
+        this.vault.frontendInactivityTimeoutMinutes =
+          timeout === null || timeout === undefined ? null : Number(timeout)
       } catch {
         // optional
       }
@@ -227,11 +336,20 @@ export default {
       this.settingsSaving = true
       this.error = ''
       try {
-        const { data } = await settingsApi.update({
-          allowHeadlessRuns: this.allowHeadlessRuns
-        })
+        const payload = {
+          allowHeadlessRuns: this.allowHeadlessRuns,
+          frontendInactivityTimeoutMinutes: this.frontendInactivityTimeout
+            ? Number(this.frontendInactivityTimeout)
+            : null
+        }
+        const { data } = await settingsApi.update(payload)
         this.allowHeadlessRuns = Boolean(data.settings?.allowHeadlessRuns)
         this.headlessSessionStored = Boolean(data.headlessSessionStored)
+        const timeout = data.settings?.frontendInactivityTimeoutMinutes
+        this.frontendInactivityTimeout =
+          timeout === null || timeout === undefined ? '' : String(timeout)
+        this.vault.frontendInactivityTimeoutMinutes =
+          timeout === null || timeout === undefined ? null : Number(timeout)
         this.message = 'Settings saved.'
       } catch (e) {
         this.error = e.response?.data?.error || e.message
@@ -296,6 +414,77 @@ export default {
         this.diagnosisHint = ''
       }
     },
+    async loadSyncStatus() {
+      if (!this.vault.isMonzoConnected) return
+      try {
+        const { data } = await monzoApi.transactionSyncStatus()
+        this.syncStatus = {
+          status: data.status || 'idle',
+          running: Boolean(data.running),
+          monthsSynced: data.monthsSynced || 0,
+          cachedMonthCount: data.cachedMonthCount || 0,
+          oldestCachedMonth: data.oldestCachedMonth || null,
+          missingRequiredMonths: data.missingRequiredMonths || [],
+          stoppedReason: data.stoppedReason || null
+        }
+        this.dataStatus.report({ syncInProgress: Boolean(data.running) })
+      } catch {
+        // optional
+      }
+    },
+    startSyncPolling() {
+      this.stopSyncPolling()
+      if (!this.vault.isMonzoConnected) return
+      this.syncPollTimer = setInterval(async () => {
+        await this.loadSyncStatus()
+        if (!this.syncStatus.running) {
+          this.stopSyncPolling()
+        }
+      }, 3000)
+    },
+    stopSyncPolling() {
+      if (this.syncPollTimer) {
+        clearInterval(this.syncPollTimer)
+        this.syncPollTimer = null
+      }
+    },
+    async startSyncHistory() {
+      this.error = ''
+      this.message = ''
+      this.syncStarting = true
+      try {
+        const { data } = await monzoApi.startTransactionSync()
+        if (data.started) {
+          this.message =
+            data.message ||
+            'Historical sync started. Open the Monzo app if prompted to approve access.'
+          await this.loadSyncStatus()
+          this.startSyncPolling()
+        } else if (data.reason === 'already_running') {
+          this.message = 'Historical sync is already running.'
+          await this.loadSyncStatus()
+          this.startSyncPolling()
+        } else {
+          this.error = data.reason === 'not_connected'
+            ? 'Connect Monzo before syncing history.'
+            : 'Could not start historical sync.'
+        }
+      } catch (e) {
+        this.error = e.response?.data?.error || e.message
+      } finally {
+        this.syncStarting = false
+      }
+    },
+    async handleAppRefresh() {
+      try {
+        await this.vault.refreshStatus()
+        if (this.vault.isMonzoConnected) {
+          await this.loadSyncStatus()
+        }
+      } finally {
+        this.dataStatus.finishRefresh()
+      }
+    },
     async finishConnection() {
       this.error = ''
       this.message = ''
@@ -312,6 +501,8 @@ export default {
             this.message = 'Monzo connected successfully.'
             this.diagnosisHint = ''
             this.finishingSetup = false
+            await this.loadSyncStatus()
+            this.startSyncPolling()
             return
           }
         } catch (e) {
@@ -331,9 +522,10 @@ export default {
       await this.loadDiagnosis()
       this.finishingSetup = false
     },
-    async lockVault() {
-      await this.vault.lock()
+    lockDashboard() {
+      this.vault.lockUi()
       this.activeSection = 'vault'
+      this.message = 'Dashboard locked.'
     }
   }
 }
@@ -350,6 +542,17 @@ export default {
   align-items: center;
   gap: 0.5rem;
   margin-top: 1rem;
+}
+
+.settings-view label.timeout-label {
+  display: block;
+  margin-top: 1rem;
+}
+
+.settings-view label.timeout-label select {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
 }
 
 .warn {

@@ -224,7 +224,7 @@ export async function ensureTransactionsForDrilldown({
     pagination.hasMore = Boolean(feed.hasMore)
     pagination.nextMonth = feed.nextMonth || null
 
-    if (feed.verificationRequired) {
+    if (feed.cacheGap) {
       pagination.hasMore = false
       pagination.nextMonth = null
     }

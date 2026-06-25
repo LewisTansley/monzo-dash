@@ -4,6 +4,7 @@ import {
   ensureMonzoAccountLinked,
   diagnoseMonzoConnection
 } from '../services/monzoClient.js'
+import { startHistoricalSync } from '../services/historicalSync.js'
 import { getVaultStatus } from '../services/vault.js'
 
 const router = Router()
@@ -21,6 +22,7 @@ router.get('/diagnose', async (_req, res) => {
 router.post('/complete', async (_req, res) => {
   try {
     const accountId = await ensureMonzoAccountLinked()
+    startHistoricalSync({ trigger: 'setup_complete' })
     res.json({ ok: true, accountId, ...getVaultStatus() })
   } catch (err) {
     const diagnosis = await diagnoseMonzoConnection().catch(() => null)

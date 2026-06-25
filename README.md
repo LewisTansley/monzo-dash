@@ -40,7 +40,9 @@ Auto-run requires an **unlocked vault**. For always-on deployments (Docker), ena
 #### Example rules
 
 - If main account balance is above £500, move the remainder above £500 into the Holiday pot.
+- If Emergency pot is above £1,000, withdraw the remainder to the main account.
 - Every Friday at 09:00, top up the Emergency pot to £1,000 if it is below target.
+- To move excess from Pot A to Pot B: create a **group** with two rules — (1) withdraw remainder above threshold from Pot A to main, (2) deposit from main into Pot B (fixed or remainder amount).
 
 #### Auto-trigger modes
 

@@ -118,6 +118,7 @@ import {
   isKanbanFiltersActive,
   summarizeKanbanMatches
 } from '../utils/transactionFilters.js'
+import { useDataStatusStore } from '../stores/dataStatus.js'
 
 const HORIZONTAL_LOAD_THRESHOLD = 200
 const MAX_PREFETCH_ATTEMPTS = 12
@@ -156,6 +157,9 @@ export default {
     }
   },
   computed: {
+    dataStatus() {
+      return useDataStatusStore()
+    },
     isFiltersActive() {
       return isKanbanFiltersActive(this.filters)
     },
@@ -227,6 +231,11 @@ export default {
     }
   },
   watch: {
+    'dataStatus.refreshGeneration'() {
+      if (this.dataStatus.refreshing) {
+        this.handleAppRefresh()
+      }
+    },
     filters: {
       deep: true,
       handler() {
@@ -236,6 +245,7 @@ export default {
     }
   },
   mounted() {
+    this.dataStatus.clearSignals()
     this.loadInitial()
   },
   beforeUnmount() {
@@ -320,11 +330,17 @@ export default {
       this.hasMore = Boolean(data.hasMore)
       this.nextMonth = data.nextMonth || null
 
-      if (data.verificationRequired && data.message) {
+      if (data.cacheGap && data.message) {
         this.endMessage = data.message
         this.hasMore = false
         this.nextMonth = null
       }
+
+      this.dataStatus.report({
+        syncInProgress: data.syncInProgress,
+        cacheGap: data.cacheGap,
+        detail: data.cacheGap ? data.message || undefined : undefined
+      })
     },
     getBoardElement() {
       return this.$refs.kanbanBoard
@@ -374,6 +390,14 @@ export default {
       }
       await this.prefetchMonthsIfNeeded()
     },
+    async handleAppRefresh() {
+      try {
+        this.dataStatus.clearSignals()
+        await this.loadInitial()
+      } finally {
+        this.dataStatus.finishRefresh()
+      }
+    },
     async loadMoreMonths() {
       if (this.loadingMore || !this.hasMore || !this.nextMonth) {
         return
@@ -382,7 +406,7 @@ export default {
       try {
         const { data } = await monzoApi.transactionMonth(this.nextMonth)
         this.applyMonthFeed(data, { append: true })
-        if (!data.hasMore && !data.verificationRequired) {
+        if (!data.hasMore && !data.cacheGap) {
           this.endMessage = this.endMessage || 'No more transactions.'
         }
       } catch (e) {
@@ -513,7 +537,7 @@ export default {
           fetchMonth: async (monthKey) => {
             const { data } = await monzoApi.transactionMonth(monthKey)
             this.applyMonthFeed(data, { append: true })
-            if (!data.hasMore && !data.verificationRequired) {
+            if (!data.hasMore && !data.cacheGap) {
               this.endMessage = this.endMessage || 'No more transactions.'
             }
             return data

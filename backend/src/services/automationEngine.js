@@ -71,8 +71,8 @@ export function evaluateConditions(automation, balances) {
   return { met, details: results }
 }
 
-export function getFundingBalance(action, balances) {
-  const accountId = getVaultData().monzo.accountId
+export function getFundingBalance(action, balances, accountIdOverride = null) {
+  const accountId = accountIdOverride ?? getVaultData().monzo.accountId
   if (action.type === 'deposit') {
     const sourceKey = `${action.source?.type}:${action.source?.id}`
     return (
@@ -150,6 +150,34 @@ function findSourcePotDrawdownCondition(action, conditionDetails) {
   return null
 }
 
+function isAccountGtCondition(d) {
+  const c = d.condition
+  return (
+    c.source.type === 'account' &&
+    (c.operator === 'gt' || c.operator === 'gte')
+  )
+}
+
+function isAccountLtCondition(d) {
+  const c = d.condition
+  return (
+    c.source.type === 'account' &&
+    (c.operator === 'lt' || c.operator === 'lte')
+  )
+}
+
+function findAccountExcessCondition(conditionDetails) {
+  const gtAccountConditions = conditionDetails.filter(isAccountGtCondition)
+  if (gtAccountConditions.length === 1) return gtAccountConditions[0]
+  return null
+}
+
+function findAccountShortfallCondition(conditionDetails) {
+  const ltAccountConditions = conditionDetails.filter(isAccountLtCondition)
+  if (ltAccountConditions.length === 1) return ltAccountConditions[0]
+  return null
+}
+
 function findPrimaryConditionDetail(action, conditionDetails) {
   if (!conditionDetails?.length) return null
 
@@ -180,12 +208,16 @@ function findPrimaryConditionDetail(action, conditionDetails) {
   return conditionDetails[0]
 }
 
-function computeRemainderTransfer(detail, fundingBalance) {
+function computeRemainderTransfer(detail, fundingBalance, amountMode) {
   const { balance: conditionBalance, threshold, condition } = detail
   const op = condition.operator
 
   let transfer = 0
-  if (op === 'gt' || op === 'gte') {
+  if (amountMode === 'remainder') {
+    transfer = conditionBalance - threshold
+  } else if (amountMode === 'remainder_below') {
+    transfer = threshold - conditionBalance
+  } else if (op === 'gt' || op === 'gte') {
     transfer = conditionBalance - threshold
   } else if (op === 'lt' || op === 'lte') {
     transfer = threshold - conditionBalance
@@ -194,10 +226,42 @@ function computeRemainderTransfer(detail, fundingBalance) {
   return Math.max(0, Math.min(transfer, fundingBalance))
 }
 
-function computeActionAmount(automation, balances, conditionDetails) {
+function findRemainderConditionDetail(action, conditionDetails, amountMode) {
+  if (amountMode === 'remainder') {
+    if (action.type === 'withdraw') {
+      const drawDown = findSourcePotDrawdownCondition(action, conditionDetails)
+      if (drawDown) return drawDown
+    }
+    if (action.type === 'deposit') {
+      const excess = findAccountExcessCondition(conditionDetails)
+      if (excess) return excess
+    }
+  } else if (amountMode === 'remainder_below') {
+    if (action.type === 'deposit') {
+      const topUp = findDestinationPotTopUpCondition(action, conditionDetails)
+      if (topUp) return topUp
+    }
+    if (action.type === 'withdraw') {
+      const shortfall = findAccountShortfallCondition(conditionDetails)
+      if (shortfall) return shortfall
+    }
+  }
+
+  return findPrimaryConditionDetail(action, conditionDetails)
+}
+
+export function computeActionAmount(automation, balances, conditionDetails, accountIdOverride = null) {
   const { action } = automation
-  const fundingBalance = getFundingBalance(action, balances)
   const { amount } = action
+  let fundingBalance = getFundingBalance(action, balances, accountIdOverride)
+
+  if (amount.mode === 'remainder' && action.type === 'withdraw') {
+    const drawDown = findSourcePotDrawdownCondition(action, conditionDetails)
+    if (drawDown) {
+      const potKey = `pot:${drawDown.condition.source.id}`
+      fundingBalance = balances[potKey] ?? fundingBalance
+    }
+  }
 
   if (amount.mode === 'fixed') {
     const topUp = findDestinationPotTopUpCondition(action, conditionDetails)
@@ -223,11 +287,19 @@ function computeActionAmount(automation, balances, conditionDetails) {
     return Math.min(Math.round((basis * amount.value) / 100), fundingBalance)
   }
 
-  if (
-    (amount.mode === 'remainder' || amount.mode === 'remainder_below') &&
-    primaryCondition
-  ) {
-    return computeRemainderTransfer(primaryCondition, fundingBalance)
+  if (amount.mode === 'remainder' || amount.mode === 'remainder_below') {
+    const remainderCondition = findRemainderConditionDetail(
+      action,
+      conditionDetails,
+      amount.mode
+    )
+    if (remainderCondition) {
+      return computeRemainderTransfer(
+        remainderCondition,
+        fundingBalance,
+        amount.mode
+      )
+    }
   }
 
   return 0

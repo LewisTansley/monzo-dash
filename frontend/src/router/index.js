@@ -50,6 +50,12 @@ const appRoutes = [
     meta: { requiresVault: true }
   },
   {
+    path: '/forecast',
+    name: 'Forecast',
+    component: () => import('../views/ForecastView.vue'),
+    meta: { requiresVault: true }
+  },
+  {
     path: '/home-budget',
     redirect: { name: 'AffordabilityChecker' }
   },
@@ -159,6 +165,16 @@ router.beforeEach(async (to, from) => {
   }
 
   if (to.meta.requiresVault && !vault.unlocked) {
+    const settingsPath = isMobileRoute(to)
+      ? resolveAppPath('/settings', { location: window.location })
+      : '/settings'
+    return { path: settingsPath, query: { redirect: to.fullPath } }
+  }
+
+  if (to.meta.requiresVault && vault.unlocked && !vault.uiUnlocked) {
+    if (from.meta?.requiresVault && from.name) {
+      return false
+    }
     const settingsPath = isMobileRoute(to)
       ? resolveAppPath('/settings', { location: window.location })
       : '/settings'

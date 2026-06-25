@@ -11,6 +11,7 @@ import budgetRoutes from './routes/budget.js'
 import categoryBudgetRoutes from './routes/budgets.js'
 import monzoSetupRoutes from './routes/monzoSetup.js'
 import settingsRoutes from './routes/settings.js'
+import forecastSettingsRoutes from './routes/forecastSettings.js'
 import {
   vaultExists,
   tryRestoreHeadlessSession
@@ -36,6 +37,7 @@ app.use('/api/budget', budgetRoutes)
 app.use('/api/budgets', categoryBudgetRoutes)
 app.use('/api/monzo/setup', monzoSetupRoutes)
 app.use('/api/settings', settingsRoutes)
+app.use('/api/forecast', forecastSettingsRoutes)
 
 if (vaultExists() && tryRestoreHeadlessSession()) {
   console.log('Vault restored for headless automation runs')

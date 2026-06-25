@@ -6,6 +6,10 @@ import {
   getTransactions,
   getTransactionMonthFeed
 } from '../services/monzoClient.js'
+import {
+  getHistoricalSyncStatus,
+  startHistoricalSync
+} from '../services/historicalSync.js'
 import { getVaultData } from '../services/vault.js'
 import { filterActivePots } from '../services/potTransfers.js'
 
@@ -27,6 +31,27 @@ router.get('/pots', async (req, res) => {
     const accountId = req.query.current_account_id || getVaultData().monzo.accountId
     const data = await getPots(accountId)
     res.json({ ...data, pots: filterActivePots(data.pots) })
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message })
+  }
+})
+
+router.get('/transactions/sync-status', async (_req, res) => {
+  try {
+    res.json(getHistoricalSyncStatus())
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message })
+  }
+})
+
+router.post('/transactions/sync', async (_req, res) => {
+  try {
+    const result = startHistoricalSync({ trigger: 'manual' })
+    res.json({
+      ...result,
+      message:
+        'Historical sync started. Full history is only available shortly after connecting Monzo.'
+    })
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message })
   }

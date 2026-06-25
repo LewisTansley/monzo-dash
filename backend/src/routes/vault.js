@@ -5,6 +5,7 @@ import {
   initVault,
   unlockVault,
   lockVault,
+  verifyPassphrase,
   getVaultStatus,
   updateVault,
   getVaultData,
@@ -78,6 +79,19 @@ router.post('/unlock', (req, res) => {
 router.post('/lock', (_req, res) => {
   lockVault()
   res.json({ ok: true })
+})
+
+router.post('/verify', (req, res) => {
+  try {
+    const { passphrase } = req.body
+    if (!passphrase) {
+      return res.status(400).json({ error: 'Passphrase required' })
+    }
+    verifyPassphrase(passphrase)
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid passphrase' })
+  }
 })
 
 router.get('/monzo-setup', (_req, res) => {

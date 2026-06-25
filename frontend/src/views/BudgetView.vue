@@ -207,6 +207,7 @@
 import { AppletShell, BaseButton, BaseModal } from '../components/common'
 import { budgetApi } from '../services/api.js'
 import { formatMoney, parsePoundsToMinor, minorToPoundsInput } from '../utils/money.js'
+import { useDataStatusStore } from '../stores/dataStatus.js'
 
 const CATEGORIES = [
   'income', 'housing', 'utilities', 'insurance', 'transport',
@@ -250,6 +251,9 @@ export default {
     }
   },
   computed: {
+    dataStatus() {
+      return useDataStatusStore()
+    },
     incomeItems() {
       return this.items.filter((i) => i.type === 'income')
     },
@@ -261,6 +265,13 @@ export default {
       return Object.values(this.summary.byCategory)
         .filter((r) => r.monthlyIncome || r.monthlyExpenses || r.annualIncome || r.annualExpenses)
         .sort((a, b) => a.category.localeCompare(b.category))
+    }
+  },
+  watch: {
+    'dataStatus.refreshGeneration'() {
+      if (this.dataStatus.refreshing) {
+        this.handleAppRefresh()
+      }
     }
   },
   mounted() {
@@ -286,6 +297,13 @@ export default {
         this.error = e.response?.data?.error || e.message
       } finally {
         this.loading = false
+      }
+    },
+    async handleAppRefresh() {
+      try {
+        await this.load()
+      } finally {
+        this.dataStatus.finishRefresh()
       }
     },
     openCreate() {

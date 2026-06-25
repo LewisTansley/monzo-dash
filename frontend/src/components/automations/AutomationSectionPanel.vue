@@ -29,14 +29,17 @@
         v-for="(cond, idx) in form.conditions"
         :key="idx"
         class="condition-row">
-        <select v-model="cond.source.type" @change="onSourceTypeChange(cond)">
+        <select v-model="cond.source.type" @change="onConditionChange(cond)">
           <option value="account">Main account</option>
           <option value="pot">Pot</option>
         </select>
-        <select v-if="cond.source.type === 'pot'" v-model="cond.source.id">
+        <select
+          v-if="cond.source.type === 'pot'"
+          v-model="cond.source.id"
+          @change="onConditionChange(cond)">
           <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
-        <select v-model="cond.operator">
+        <select v-model="cond.operator" @change="onConditionChange(cond)">
           <option value="gt">Greater than</option>
           <option value="gte">Greater or equal</option>
           <option value="lt">Less than</option>
@@ -69,7 +72,7 @@
     <div v-show="activeSection === 'action'" class="sw-form-section">
       <label>
         Type
-        <select v-model="form.action.type">
+        <select v-model="form.action.type" @change="onActionTypeChange">
           <option value="deposit">Deposit to pot</option>
           <option value="withdraw">Withdraw from pot</option>
         </select>
@@ -90,7 +93,7 @@
 
       <label>
         Amount mode
-        <select v-model="form.action.amount.mode">
+        <select v-model="form.action.amount.mode" @change="onAmountModeChange">
           <option value="fixed">Fixed amount (£)</option>
           <option value="percent">Percentage</option>
           <option value="remainder">Remainder above threshold</option>
@@ -102,9 +105,16 @@
         v-if="isRemainderAmountMode"
         class="mode-hint">
         Transfers the gap between the condition balance and its threshold,
-        capped by available funds. Works for both directions: pot below £80
-        deposits the shortfall; pot above £80 withdraws the excess; main
-        account below £0 withdraws from a pot.
+        capped by available funds.
+        <template v-if="form.action.amount.mode === 'remainder'">
+          Remainder above from a pot: use Withdraw from that pot (to main account).
+          Remainder above from main: use Deposit to a pot.
+        </template>
+        <template v-else>
+          Remainder below into a pot: use Deposit to that pot (from main account).
+          Remainder below on main: use Withdraw from a pot.
+        </template>
+        To move between two pots, create a group: withdraw from one pot, then deposit to the other.
       </p>
       <p
         v-if="form.action.type === 'deposit' && form.action.amount.mode === 'fixed'"
@@ -147,7 +157,11 @@
 
 <script>
 import { BaseButton } from '../common'
-import { emptyCondition } from '../../utils/automationForm.js'
+import {
+  emptyCondition,
+  syncRemainderAction,
+  onActionTypeChange as applyActionTypeChange
+} from '../../utils/automationForm.js'
 import AutomationAutoTriggerPanel from './AutomationAutoTriggerPanel.vue'
 
 export default {
@@ -184,6 +198,16 @@ export default {
       } else if (this.pots[0]) {
         cond.source.id = this.pots[0].id
       }
+    },
+    onConditionChange(cond) {
+      this.onSourceTypeChange(cond)
+      syncRemainderAction(this.form, this.pots, this.accountId)
+    },
+    onActionTypeChange() {
+      applyActionTypeChange(this.form, this.pots, this.accountId)
+    },
+    onAmountModeChange() {
+      syncRemainderAction(this.form, this.pots, this.accountId)
     },
     addCondition() {
       // eslint-disable-next-line vue/no-mutating-props -- mutable edit draft

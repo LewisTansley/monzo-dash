@@ -1,4 +1,9 @@
-import { getTransactions, getBalance, getPots, isVerificationRequired } from './monzoClient.js'
+import {
+  getTransactions,
+  getBalance,
+  getPots,
+  fetchMonthTransactionsWithCache
+} from './monzoClient.js'
 import {
   buildPotNamesSet,
   filterSpendableTransactions,
@@ -6,6 +11,14 @@ import {
 } from './potTransfers.js'
 import { deduplicateTransactionsById } from './transactionUtils.js'
 import { getVaultData } from './vault.js'
+import { formatMonthKey } from './monthUtils.js'
+import {
+  getMissingRequiredMonths,
+  filterRealCacheGaps
+} from './cacheCoverage.js'
+
+const CACHE_GAP_REASON =
+  'Some months are missing from the local transaction cache. Sync history in Settings or reconnect Monzo.'
 
 const CATEGORIES = [
   'general', 'eating_out', 'expenses', 'transport', 'cash', 'bills',
@@ -59,43 +72,28 @@ async function fetchAllTransactionsSince(since) {
   return fetchTransactionsInRange(since)
 }
 
-function monthRangesYtd() {
+async function fetchYtdTransactions() {
+  const accountId = getVaultData().monzo.accountId
   const now = new Date()
   const year = now.getFullYear()
-  const ranges = []
-
-  for (let month = now.getMonth(); month >= 0; month--) {
-    ranges.push({
-      since: new Date(year, month, 1).toISOString(),
-      before: month < now.getMonth()
-        ? new Date(year, month + 1, 1).toISOString()
-        : null
-    })
-  }
-
-  return ranges
-}
-
-async function fetchYtdTransactions() {
+  const currentMonthKey = formatMonthKey(year, now.getMonth())
   const batches = []
-  let verificationRequired = false
+  const failedMonthKeys = []
   let effectiveSince = null
 
-  for (const { since, before } of monthRangesYtd()) {
+  for (let month = now.getMonth(); month >= 0; month--) {
+    const monthKey = formatMonthKey(year, month)
+    const since = new Date(year, month, 1).toISOString()
     try {
-      const batch = await fetchTransactionsInRange(since, before)
-      batches.push(...batch)
-      if (batch.length) {
+      const { transactions } = await fetchMonthTransactionsWithCache(accountId, year, month)
+      batches.push(...transactions)
+      if (transactions.length) {
         effectiveSince = !effectiveSince || new Date(since) < new Date(effectiveSince)
           ? since
           : effectiveSince
       }
-    } catch (err) {
-      if (isVerificationRequired(err)) {
-        verificationRequired = true
-        continue
-      }
-      throw err
+    } catch {
+      failedMonthKeys.push(monthKey)
     }
   }
 
@@ -103,9 +101,18 @@ async function fetchYtdTransactions() {
     (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime()
   )
 
+  const realGaps = filterRealCacheGaps(
+    failedMonthKeys.filter((key) => key !== currentMonthKey)
+  )
+  const yearStart = formatMonthKey(year, 0)
+  const incomplete =
+    realGaps.length > 0 ||
+    getMissingRequiredMonths(currentMonthKey, { rangeStart: yearStart }).length > 0
+
   return {
     transactions,
-    verificationRequired,
+    verificationRequired: incomplete,
+    failedMonthKeys: realGaps,
     effectiveSince: effectiveSince || startOfYear()
   }
 }
@@ -203,9 +210,7 @@ export async function getSummary(period) {
     since,
     effectiveSince: seriesSince,
     incomplete: verificationRequired,
-    incompleteReason: verificationRequired
-      ? 'Monzo requires app approval for older transactions. Showing available data only — open the Monzo app if prompted.'
-      : null,
+    incompleteReason: verificationRequired ? CACHE_GAP_REASON : null,
     excludedPotTransfers,
     ...aggregateTransactions(spendable, {
       includeDailySeries: true,

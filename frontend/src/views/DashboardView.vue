@@ -64,7 +64,6 @@
                   YTD
                 </button>
               </div>
-              <BaseButton variant="secondary" text="Refresh" @click="loadAll" />
             </div>
           </div>
           <div v-if="dashboardAutomations.length || dashboardGroups.length" class="automation-buttons">
@@ -385,9 +384,42 @@ import {
 import { buildPeriodDailySeries, buildPotDailySeries } from '../utils/transactionAnalytics.js'
 import { flattenMonthColumns, monthKeysForPeriod } from '../utils/transactionFilters.js'
 import { useLayoutStore } from '../stores/layout.js'
+import { useDataStatusStore } from '../stores/dataStatus.js'
 
 const CONFIRM_THRESHOLD = 5000
 const DASHBOARD_POLL_MS = 3 * 60 * 1000
+const TRANSIENT_RETRY_DELAY_MS = 400
+
+function isTransientApiError(err) {
+  if (!err?.response) {
+    const msg = String(err?.message || '')
+    return msg === 'fetch failed' || msg === 'Network Error'
+  }
+  return err.response?.data?.error === 'fetch failed'
+}
+
+function createDashboardLoads() {
+  return {
+    balance: () => monzoApi.balance(),
+    pots: () => monzoApi.pots(),
+    mtd: () => analyticsApi.summary('mtd'),
+    ytd: () => analyticsApi.summary('ytd'),
+    projections: () => analyticsApi.projections(),
+    automations: () => automationsApi.list(),
+    groups: () => automationGroupsApi.list()
+  }
+}
+
+async function fetchDashboardData() {
+  const loads = createDashboardLoads()
+  const keys = Object.keys(loads)
+  const results = await Promise.allSettled(keys.map((key) => loads[key]()))
+  const byKey = {}
+  keys.forEach((key, index) => {
+    byKey[key] = results[index]
+  })
+  return byKey
+}
 
 export default {
   name: 'DashboardView',
@@ -440,10 +472,17 @@ export default {
       txDrilldownTransactions: [],
       txDrilldownLoading: false,
       refreshPollId: null,
-      isPageVisible: true
+      isPageVisible: true,
+      loadGeneration: 0,
+      transactionsGeneration: 0
     }
   },
   watch: {
+    'dataStatus.refreshGeneration'() {
+      if (this.dataStatus.refreshing) {
+        this.handleAppRefresh()
+      }
+    },
     period() {
       if (this.chartDetail?.selection) {
         this.loadChartDrilldown()
@@ -451,6 +490,9 @@ export default {
     }
   },
   computed: {
+    dataStatus() {
+      return useDataStatusStore()
+    },
     periodLabel() {
       return this.period === 'ytd' ? 'YTD' : 'MTD'
     },
@@ -635,6 +677,7 @@ export default {
     }
   },
   mounted() {
+    this.dataStatus.clearSignals()
     this.loadAll()
     this.loadTransactions()
     this.isPageVisible = document.visibilityState !== 'hidden'
@@ -642,6 +685,8 @@ export default {
     this.startRefreshPoll()
   },
   beforeUnmount() {
+    this.loadGeneration += 1
+    this.transactionsGeneration += 1
     document.removeEventListener('visibilitychange', this.onVisibilityChange)
     this.stopRefreshPoll()
   },
@@ -689,11 +734,17 @@ export default {
       this.transactionsHasMore = Boolean(data.hasMore)
       this.transactionsNextMonth = data.nextMonth || null
 
-      if (data.verificationRequired && data.message) {
+      if (data.cacheGap && data.message) {
         this.transactionsEndMessage = data.message
         this.transactionsHasMore = false
         this.transactionsNextMonth = null
       }
+
+      this.dataStatus.report({
+        syncInProgress: data.syncInProgress,
+        cacheGap: data.cacheGap,
+        detail: data.cacheGap ? data.message || undefined : undefined
+      })
     },
     isTransactionsScrollable() {
       const el = this.$refs.transactionsSidebar?.getScrollElement?.()
@@ -716,20 +767,35 @@ export default {
       }
     },
     async loadTransactions() {
+      const generation = ++this.transactionsGeneration
       this.transactionsLoading = true
       this.transactionsEndMessage = ''
       this.transactionsHasMore = false
       this.transactionsNextMonth = null
       this.transactionMonths = []
       try {
-        const { data } = await monzoApi.transactionMonth()
+        let data
+        try {
+          const response = await monzoApi.transactionMonth()
+          data = response.data
+        } catch (e) {
+          if (!isTransientApiError(e)) throw e
+          await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS))
+          if (generation !== this.transactionsGeneration) return
+          const retryResponse = await monzoApi.transactionMonth()
+          data = retryResponse.data
+        }
+        if (generation !== this.transactionsGeneration) return
         this.applyTransactionMonthFeed(data)
         await this.prefetchTransactionMonthsIfNeeded()
       } catch (e) {
+        if (generation !== this.transactionsGeneration) return
         this.transactionMonths = []
         this.loadError = this.loadError || e.response?.data?.error || e.message
       } finally {
-        this.transactionsLoading = false
+        if (generation === this.transactionsGeneration) {
+          this.transactionsLoading = false
+        }
       }
     },
     async loadMoreTransactions() {
@@ -745,7 +811,7 @@ export default {
       try {
         const { data } = await monzoApi.transactionMonth(this.transactionsNextMonth)
         this.applyTransactionMonthFeed(data, { append: true })
-        if (!data.hasMore && !data.verificationRequired) {
+        if (!data.hasMore && !data.cacheGap) {
           this.transactionsEndMessage = this.transactionsEndMessage || 'No more transactions.'
         }
       } catch (e) {
@@ -876,7 +942,7 @@ export default {
           fetchMonth: async (monthKey) => {
             const { data } = await monzoApi.transactionMonth(monthKey)
             this.applyTransactionMonthFeed(data, { append: true })
-            if (!data.hasMore && !data.verificationRequired) {
+            if (!data.hasMore && !data.cacheGap) {
               this.transactionsEndMessage = this.transactionsEndMessage || 'No more transactions.'
             }
             return data
@@ -946,47 +1012,84 @@ export default {
       }
     },
     async loadAll() {
+      const generation = ++this.loadGeneration
       this.loading = true
       this.loadError = ''
-      const results = await Promise.allSettled([
-        monzoApi.balance(),
-        monzoApi.pots(),
-        analyticsApi.summary('mtd'),
-        analyticsApi.summary('ytd'),
-        analyticsApi.projections(),
-        automationsApi.list(),
-        automationGroupsApi.list()
-      ])
-      const [bal, potsRes, mtd, ytd, proj, autos, groupsRes] = results
-      const errors = []
 
-      if (bal.status === 'fulfilled') this.balance = bal.value.data
-      else errors.push('balance')
+      try {
+        let byKey = await fetchDashboardData()
 
-      if (potsRes.status === 'fulfilled') this.pots = potsRes.value.data.pots || []
-      else errors.push('pots')
+        const retryKeys = Object.entries(byKey)
+          .filter(([, result]) => result.status === 'rejected' && isTransientApiError(result.reason))
+          .map(([key]) => key)
 
-      if (mtd.status === 'fulfilled') this.mtd = mtd.value.data
-      else errors.push('mtd analytics')
+        if (retryKeys.length) {
+          await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS))
+          if (generation !== this.loadGeneration) return
 
-      if (ytd.status === 'fulfilled') this.ytd = ytd.value.data
-      else errors.push('ytd analytics')
-      if (proj.status === 'fulfilled') this.projections = proj.value.data
+          const loads = createDashboardLoads()
+          const retryResults = await Promise.allSettled(retryKeys.map((key) => loads[key]()))
+          retryKeys.forEach((key, index) => {
+            byKey[key] = retryResults[index]
+          })
+        }
 
-      if (autos.status === 'fulfilled') this.automations = autos.value.data.automations || []
-      else errors.push('automations')
+        if (generation !== this.loadGeneration) return
 
-      if (groupsRes.status === 'fulfilled') this.groups = groupsRes.value.data.groups || []
+        const errors = []
 
-      if (errors.length) {
-        const first = results.find((r) => r.status === 'rejected')
-        const msg = first?.reason?.response?.data?.error || first?.reason?.message
-        this.loadError = msg
-          ? `Some data failed to load: ${msg}`
-          : 'Some dashboard data failed to load. Check vault and Monzo connection in Settings.'
+        if (byKey.balance.status === 'fulfilled') this.balance = byKey.balance.value.data
+        else errors.push('balance')
+
+        if (byKey.pots.status === 'fulfilled') this.pots = byKey.pots.value.data.pots || []
+        else errors.push('pots')
+
+        if (byKey.mtd.status === 'fulfilled') this.mtd = byKey.mtd.value.data
+        else errors.push('mtd analytics')
+
+        if (byKey.ytd.status === 'fulfilled') this.ytd = byKey.ytd.value.data
+        else errors.push('ytd analytics')
+
+        if (byKey.projections.status === 'fulfilled') {
+          this.projections = byKey.projections.value.data
+        }
+
+        if (byKey.automations.status === 'fulfilled') {
+          this.automations = byKey.automations.value.data.automations || []
+        } else {
+          errors.push('automations')
+        }
+
+        if (byKey.groups.status === 'fulfilled') {
+          this.groups = byKey.groups.value.data.groups || []
+        }
+
+        this.dataStatus.report({
+          incomplete: this.ytd?.incomplete,
+          detail: this.ytd?.incompleteReason || undefined
+        })
+
+        if (errors.length) {
+          const firstRejected = Object.values(byKey).find((result) => result.status === 'rejected')
+          const msg =
+            firstRejected?.reason?.response?.data?.error || firstRejected?.reason?.message
+          this.loadError = msg
+            ? `Some data failed to load: ${msg}`
+            : 'Some dashboard data failed to load. Check vault and Monzo connection in Settings.'
+        }
+      } finally {
+        if (generation === this.loadGeneration) {
+          this.loading = false
+        }
       }
-
-      this.loading = false
+    },
+    async handleAppRefresh() {
+      try {
+        this.dataStatus.clearSignals()
+        await Promise.all([this.loadAll(), this.loadTransactions()])
+      } finally {
+        this.dataStatus.finishRefresh()
+      }
     },
     async onBudgetsSaved() {
       try {
